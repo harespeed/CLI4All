@@ -1,0 +1,169 @@
+commands:
+  - intent: show_ip_config
+    description: Show local IP address and network interface configuration.
+    category: networking
+    risk_level: low
+    commands:
+      windows_cmd:
+        - ipconfig
+        - ipconfig /all
+      powershell:
+        - Get-NetIPConfiguration
+        - Get-NetIPAddress
+      macos:
+        - ifconfig
+        - ipconfig getifaddr en0
+      ubuntu:
+        - ip addr
+        - hostname -I
+    notes:
+      - Ubuntu commonly uses iproute2 tools instead of Windows-style network commands.
+
+  - intent: list_files
+    description: List files and directories in the current location.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - dir
+      powershell:
+        - Get-ChildItem
+        - ls
+      macos:
+        - ls
+        - ls -la
+      ubuntu:
+        - ls
+        - ls -la
+    notes:
+      - ls -la includes hidden files and detailed metadata.
+
+  - intent: clear_screen
+    description: Clear the terminal screen.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - cls
+      powershell:
+        - Clear-Host
+        - cls
+      macos:
+        - clear
+      ubuntu:
+        - clear
+    notes:
+      - This affects terminal display only and does not modify files.
+
+  - intent: show_processes
+    description: Show the currently running processes.
+    category: processes
+    risk_level: low
+    commands:
+      windows_cmd:
+        - tasklist
+      powershell:
+        - Get-Process
+      macos:
+        - ps aux
+      ubuntu:
+        - ps aux
+    notes:
+      - ps aux shows process details for all users.
+
+  - intent: kill_process
+    description: Stop a running process by process identifier.
+    category: processes
+    risk_level: medium
+    commands:
+      windows_cmd:
+        - taskkill /PID <pid>
+      powershell:
+        - Stop-Process -Id <pid>
+      macos:
+        - kill <pid>
+      ubuntu:
+        - kill <pid>
+    notes:
+      - Killing the wrong process can interrupt services or terminate unsaved work.
+
+  - intent: find_executable
+    description: Locate the executable that will run for a given command name.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - where <name>
+      powershell:
+        - Get-Command <name>
+      macos:
+        - which <name>
+      ubuntu:
+        - which <name>
+    notes:
+      - Use this to confirm which binary is first on PATH.
+
+  - intent: show_ports
+    description: Show listening ports and network socket usage.
+    category: networking
+    risk_level: low
+    commands:
+      windows_cmd:
+        - netstat -ano
+      powershell:
+        - Get-NetTCPConnection
+      macos:
+        - lsof -i
+      ubuntu:
+        - ss -tulnp
+        - lsof -i
+    notes:
+      - ss is the standard Ubuntu tool for socket inspection.
+
+  - intent: copy_file
+    description: Copy a file from one path to another.
+    category: filesystem
+    risk_level: medium
+    commands:
+      windows_cmd:
+        - copy <src> <dst>
+      powershell:
+        - Copy-Item <src> <dst>
+      macos:
+        - cp <src> <dst>
+      ubuntu:
+        - cp <src> <dst>
+    notes:
+      - Existing destination files may be overwritten depending on shell behavior and flags.
+
+  - intent: remove_file
+    description: Remove a file from the filesystem.
+    category: filesystem
+    risk_level: high
+    commands:
+      windows_cmd:
+        - del <file>
+      powershell:
+        - Remove-Item <file>
+      macos:
+        - rm <file>
+      ubuntu:
+        - rm <file>
+    notes:
+      - File removal is typically irreversible without backups or snapshots.
+
+  - intent: install_package
+    description: Install a software package using the platform package manager.
+    category: packages
+    risk_level: medium
+    commands:
+      windows_cmd:
+        - winget install <package>
+      powershell:
+        - winget install <package>
+      macos:
+        - brew install <package>
+      ubuntu:
+        - sudo apt update && sudo apt install <package>
+    notes:
+      - Ubuntu commonly separates repository metadata refresh from package installation.

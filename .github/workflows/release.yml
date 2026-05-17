@@ -1,0 +1,161 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  macos-latest:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package macOS archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          STAGE_DIR="dist/cli4all-macos"
+          rm -rf "$STAGE_DIR"
+          mkdir -p "$STAGE_DIR/data" "$STAGE_DIR/scripts"
+          cp target/release/cli4all "$STAGE_DIR/cli4all"
+          cp README.md "$STAGE_DIR/README.md"
+          cp PACKAGING.md "$STAGE_DIR/PACKAGING.md"
+          cp data/*.yaml "$STAGE_DIR/data/"
+          cp scripts/install_macos.sh "$STAGE_DIR/scripts/install_macos.sh"
+
+          ARCHIVE_NAME="cli4all-macos-universal.tar.gz"
+          if [[ "$(uname -m)" == "x86_64" ]]; then
+            ARCHIVE_NAME="cli4all-macos-x86_64.tar.gz"
+          fi
+
+          tar -C dist -czf "dist/$ARCHIVE_NAME" "$(basename "$STAGE_DIR")"
+          echo "ARCHIVE_PATH=dist/$ARCHIVE_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: ${{ env.ARCHIVE_PATH }}
+
+      - name: Attach macOS artifact to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE_PATH }}
+
+  ubuntu-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build Debian package
+        run: cargo deb
+
+      - name: Upload Debian artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: target/debian/*.deb
+
+      - name: Attach Debian artifact to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/debian/*.deb
+
+  windows-latest:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package Windows archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $stageDir = Join-Path "dist" "cli4all-windows-x86_64"
+          if (Test-Path $stageDir) {
+            Remove-Item $stageDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force $stageDir | Out-Null
+          New-Item -ItemType Directory -Force (Join-Path $stageDir "data") | Out-Null
+          New-Item -ItemType Directory -Force (Join-Path $stageDir "scripts") | Out-Null
+          Copy-Item "target\release\cli4all.exe" (Join-Path $stageDir "cli4all.exe") -Force
+          Copy-Item "README.md" (Join-Path $stageDir "README.md") -Force
+          Copy-Item "PACKAGING.md" (Join-Path $stageDir "PACKAGING.md") -Force
+          Copy-Item "data\commands.yaml" (Join-Path $stageDir "data\commands.yaml") -Force
+          Copy-Item "data\risks.yaml" (Join-Path $stageDir "data\risks.yaml") -Force
+          Copy-Item "scripts\install_windows.ps1" (Join-Path $stageDir "scripts\install_windows.ps1") -Force
+
+          $archivePath = "dist\cli4all-windows-x86_64.zip"
+          if (Test-Path $archivePath) {
+            Remove-Item $archivePath -Force
+          }
+          Compress-Archive -Path $stageDir -DestinationPath $archivePath -Force
+          "ARCHIVE_PATH=$archivePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: ${{ env.ARCHIVE_PATH }}
+
+      - name: Attach Windows artifact to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE_PATH }}

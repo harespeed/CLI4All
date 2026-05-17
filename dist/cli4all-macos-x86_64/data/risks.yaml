@@ -1,0 +1,13 @@
+risks:
+  - name: remove-root
+    level: destructive
+    reason: recursively removes the root filesystem.
+    patterns:
+      - '(?i)^\s*(?:sudo\s+)?rm\s+-[A-Za-z]*r[A-Za-z]*f[A-Za-z]*\s+/(?:\s|$)'
+      - '(?i)^\s*(?:sudo\s+)?rm\s+-[A-Za-z]*f[A-Za-z]*r[A-Za-z]*\s+/(?:\s|$)'
+
+  - name: recursive-world-writable
+    level: high
+    reason: recursively grants full read, write, and execute permissions to everyone.
+    patterns:
+      - '(?i)^\s*chmod\s+-R\s+777(?:\s|$)'
