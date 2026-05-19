@@ -1,0 +1,119 @@
+:root {
+  color: #dce7f3;
+  background:
+    radial-gradient(circle at top, rgba(59, 110, 165, 0.22), transparent 35%),
+    linear-gradient(180deg, #0f2131 0%, #040a11 100%);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 28px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.terminal-frame {
+  width: min(1200px, 100%);
+  min-height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(147, 185, 220, 0.18);
+  border-radius: 22px;
+  overflow: hidden;
+  background: rgba(3, 10, 18, 0.88);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px);
+}
+
+.frame-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(147, 185, 220, 0.12);
+  background:
+    linear-gradient(90deg, rgba(23, 44, 66, 0.95), rgba(10, 19, 31, 0.88));
+}
+
+.traffic-lights {
+  display: flex;
+  gap: 8px;
+}
+
+.dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.dot-red {
+  background: #ff6b57;
+}
+
+.dot-yellow {
+  background: #f3c65f;
+}
+
+.dot-green {
+  background: #91d45a;
+}
+
+.frame-title {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #9bb3c8;
+}
+
+.terminal-surface {
+  flex: 1;
+  min-height: 0;
+  padding: 18px;
+}
+
+.terminal-surface .xterm {
+  height: 100%;
+}
+
+.terminal-surface .xterm-viewport {
+  border-radius: 14px;
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .terminal-frame {
+    min-height: calc(100vh - 24px);
+    border-radius: 16px;
+  }
+
+  .terminal-surface {
+    padding: 12px;
+  }
+}

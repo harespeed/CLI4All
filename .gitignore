@@ -1,0 +1,50 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Node / frontend dependencies and builds
+/desktop/node_modules/
+/desktop/dist/
+/desktop/.vite/
+/desktop/build/
+/desktop/.output/
+
+# Tauri build outputs
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/src-tauri/.tauri/
+
+# Release/package artifacts
+/dist/
+*.dmg
+*.pkg
+*.msi
+*.exe
+*.deb
+*.rpm
+*.AppImage
+*.tar.gz
+*.zip
+*.7z
+
+# Git backup directories - never commit
+.git_backup*/
+.git_backup_*
+.git_backup_bad_history/
+backup-before-clean*/
+
+# Logs/temp
+*.log
+.DS_Store
+/tmp/
+/temp/
+*.tmp
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
