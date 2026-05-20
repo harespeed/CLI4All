@@ -12,6 +12,7 @@ use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Manager, State};
 
 const CONFIRMATION_PROMPT: &str = "Execute this command? [y/N]";
+const TRANSLATE_COMPLETION_MARKER: &str = "__CLI4ALL_TRANSLATE_DONE__";
 
 struct DesktopState {
     current_platform: Platform,
@@ -189,7 +190,10 @@ fn submit_terminal_line(
                 .ok_or_else(|| "missing translated command".to_string())?;
             session
                 .pty
-                .write_text(&format!("{translated_command}\n"))
+                .write_text(&translate_mode_command(
+                    state.current_platform,
+                    translated_command,
+                ))
                 .map_err(|error| error.to_string())?;
         }
         ShellAction::Confirm => {
@@ -233,7 +237,10 @@ fn resolve_confirmation(
     if confirmed {
         session
             .pty
-            .write_text(&format!("{}\n", pending.translated_command))
+            .write_text(&translate_mode_command(
+                state.current_platform,
+                &pending.translated_command,
+            ))
             .map_err(|error| error.to_string())?;
         Ok(ConfirmationResolutionResponse {
             action: ConfirmationResolutionAction::Execute,
@@ -326,6 +333,17 @@ fn submit_message(action: &ShellAction) -> Option<String> {
         ShellAction::UnknownNoExecute => Some(
             "Unknown command mapping. CLI4ALL will not execute this command automatically in safe mode."
                 .to_string(),
+        ),
+    }
+}
+
+fn translate_mode_command(platform: Platform, translated_command: &str) -> String {
+    match platform {
+        Platform::Macos | Platform::Ubuntu => format!(
+            "{translated_command}; printf '\\037{TRANSLATE_COMPLETION_MARKER}\\037'\n"
+        ),
+        Platform::Windows => format!(
+            "{translated_command}; Write-Host ([char]31 + '{TRANSLATE_COMPLETION_MARKER}' + [char]31) -NoNewline\r\n"
         ),
     }
 }

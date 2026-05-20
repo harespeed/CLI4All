@@ -47,6 +47,8 @@ const TRANSLATE_PROMPT = "cli4all-translate> ";
 const CONFIRM_PROMPT = "Execute this command? [y/N]";
 const SCROLLBACK_LINES = 20000;
 const BOTTOM_SCROLL_THRESHOLD = 2;
+const TRANSLATE_COMPLETION_TOKEN = "\u001f__CLI4ALL_TRANSLATE_DONE__\u001f";
+const PROMPT_FRAGMENT_LIMIT = 240;
 
 export default function App() {
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
@@ -59,6 +61,10 @@ export default function App() {
   const localPromptVisibleRef = useRef(false);
   const awaitingConfirmationRef = useRef(false);
   const destroyedRef = useRef(false);
+  const hiddenNativePromptRef = useRef("");
+  const nativePromptCandidateRef = useRef("");
+  const waitingForNativePromptRef = useRef(false);
+  const pendingTranslatePromptRef = useRef(false);
 
   const [mode, setMode] = useState<TerminalMode>("native");
   const [currentOs, setCurrentOs] = useState("Starting...");
@@ -176,6 +182,15 @@ export default function App() {
       awaitingConfirmationRef.current = false;
     };
 
+    const resetNativePromptState = (clearHiddenPrompt: boolean) => {
+      nativePromptCandidateRef.current = "";
+      waitingForNativePromptRef.current = false;
+      pendingTranslatePromptRef.current = false;
+      if (clearHiddenPrompt) {
+        hiddenNativePromptRef.current = "";
+      }
+    };
+
     const showTranslatePrompt = (prependNewline: boolean) => {
       if (modeRef.current !== "translate") {
         return;
@@ -188,6 +203,115 @@ export default function App() {
       }
       writeTerminal(TRANSLATE_PROMPT, "always");
       localPromptVisibleRef.current = true;
+    };
+
+    const revealHiddenNativePrompt = () => {
+      const prompt = hiddenNativePromptRef.current || nativePromptCandidateRef.current;
+      if (prompt.length > 0) {
+        writeTerminal(prompt, "always");
+      }
+      hiddenNativePromptRef.current = "";
+      nativePromptCandidateRef.current = "";
+      waitingForNativePromptRef.current = false;
+      pendingTranslatePromptRef.current = false;
+    };
+
+    const handleSuppressedNativePrompt = () => {
+      if (!pendingTranslatePromptRef.current) {
+        return;
+      }
+      pendingTranslatePromptRef.current = false;
+      showTranslatePrompt(false);
+    };
+
+    const processNativePromptCandidate = (
+      incomingData: string,
+    ): { visibleData: string; promptSuppressed: boolean } => {
+      nativePromptCandidateRef.current += incomingData;
+
+      const candidate = nativePromptCandidateRef.current;
+      const newlineMatch = candidate.match(/\r?\n/);
+
+      if (newlineMatch && newlineMatch.index !== undefined) {
+        const newlineIndex = newlineMatch.index;
+        const newlineLen = newlineMatch[0].length;
+        const fragment = candidate.slice(0, newlineIndex);
+        const remainder = candidate.slice(newlineIndex + newlineLen);
+
+        nativePromptCandidateRef.current = "";
+
+        if (isPromptLikeFragment(fragment)) {
+          hiddenNativePromptRef.current = fragment;
+          waitingForNativePromptRef.current = false;
+          return {
+            visibleData: remainder,
+            promptSuppressed: true,
+          };
+        }
+
+        return {
+          visibleData: candidate,
+          promptSuppressed: false,
+        };
+      }
+
+      if (candidate.length > PROMPT_FRAGMENT_LIMIT) {
+        nativePromptCandidateRef.current = "";
+        return {
+          visibleData: candidate,
+          promptSuppressed: false,
+        };
+      }
+
+      if (isPromptLikeFragment(candidate)) {
+        hiddenNativePromptRef.current = candidate;
+        nativePromptCandidateRef.current = "";
+        waitingForNativePromptRef.current = false;
+        return {
+          visibleData: "",
+          promptSuppressed: true,
+        };
+      }
+
+      return {
+        visibleData: "",
+        promptSuppressed: false,
+      };
+    };
+
+    const processTranslatePtyOutput = (
+      rawData: string,
+    ): { visibleData: string; promptSuppressed: boolean } => {
+      let remaining = rawData;
+      let visibleData = "";
+      let promptSuppressed = false;
+
+      while (remaining.length > 0) {
+        if (waitingForNativePromptRef.current) {
+          const result = processNativePromptCandidate(remaining);
+          visibleData += result.visibleData;
+          promptSuppressed = promptSuppressed || result.promptSuppressed;
+          break;
+        }
+
+        const markerIndex = remaining.indexOf(TRANSLATE_COMPLETION_TOKEN);
+        if (markerIndex === -1) {
+          visibleData += remaining;
+          break;
+        }
+
+        visibleData += remaining.slice(0, markerIndex);
+        remaining = remaining.slice(
+          markerIndex + TRANSLATE_COMPLETION_TOKEN.length,
+        );
+        waitingForNativePromptRef.current = true;
+        nativePromptCandidateRef.current = "";
+      }
+
+      return {
+        visibleData,
+        promptSuppressed,
+      };
     };
 
     const syncPtySize = async () => {
@@ -283,6 +407,12 @@ export default function App() {
             input,
           },
         );
+        if (response.action === "execute") {
+          hiddenNativePromptRef.current = "";
+          nativePromptCandidateRef.current = "";
+          waitingForNativePromptRef.current = false;
+          pendingTranslatePromptRef.current = true;
+        }
         handleSubmitResponse(response);
       } catch (error) {
         printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
@@ -308,6 +438,11 @@ export default function App() {
         if (response.action === "cancelled") {
           printNotice("CLI4ALL Notice", [response.message]);
           showTranslatePrompt(false);
+        } else {
+          hiddenNativePromptRef.current = "";
+          nativePromptCandidateRef.current = "";
+          waitingForNativePromptRef.current = false;
+          pendingTranslatePromptRef.current = true;
         }
       } catch (error) {
         printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
@@ -317,6 +452,7 @@ export default function App() {
 
     const startSession = async () => {
       resetLocalInputState();
+      resetNativePromptState(true);
       sessionIdRef.current = null;
       terminal.reset();
       terminal.scrollToBottom();
@@ -331,6 +467,7 @@ export default function App() {
         setCurrentOs(response.currentOs);
         await syncPtySize();
         if (modeRef.current === "translate") {
+          waitingForNativePromptRef.current = true;
           showTranslatePrompt(false);
         }
       } catch (error) {
@@ -445,6 +582,18 @@ export default function App() {
       ) {
         return;
       }
+
+      if (modeRef.current === "translate") {
+        const result = processTranslatePtyOutput(event.payload.data);
+        if (result.visibleData.length > 0) {
+          writeStream(result.visibleData);
+        }
+        if (result.promptSuppressed) {
+          handleSuppressedNativePrompt();
+        }
+        return;
+      }
+
       writeStream(event.payload.data);
     }).then((unlisten) => {
       unlistenOutput = unlisten;
@@ -462,6 +611,7 @@ export default function App() {
       }
       sessionIdRef.current = null;
       resetLocalInputState();
+      resetNativePromptState(true);
       printNotice("CLI4ALL Notice", [
         "PTY session ended. Use New Session to start another terminal.",
       ]);
@@ -505,7 +655,17 @@ export default function App() {
     modeRef.current = nextMode;
     setMode(nextMode);
 
+    const bufferedNativePrompt =
+      hiddenNativePromptRef.current || nativePromptCandidateRef.current;
+
     terminal.scrollToBottom();
+    if (nextMode === "translate") {
+      hiddenNativePromptRef.current = "";
+      nativePromptCandidateRef.current = "";
+      waitingForNativePromptRef.current = true;
+      pendingTranslatePromptRef.current = false;
+      writeTerminalAndScroll(terminal, "\r\x1b[2K");
+    }
     writeTerminalAndScroll(terminal, "\r\n");
     printToolbarModeNotice(terminal, nextMode);
     if (nextMode === "translate") {
@@ -513,6 +673,16 @@ export default function App() {
       terminal.scrollToBottom();
       writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
       localPromptVisibleRef.current = true;
+    } else {
+      hiddenNativePromptRef.current = "";
+      nativePromptCandidateRef.current = "";
+      waitingForNativePromptRef.current = false;
+      pendingTranslatePromptRef.current = false;
+      if (bufferedNativePrompt.length > 0) {
+        writeTerminalAndScroll(terminal, bufferedNativePrompt);
+      } else if (sessionIdRef.current !== null) {
+        void invoke("write_to_pty", { input: "\n" }).catch(() => undefined);
+      }
     }
   };
 
@@ -529,6 +699,10 @@ export default function App() {
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
     awaitingConfirmationRef.current = false;
+    hiddenNativePromptRef.current = "";
+    nativePromptCandidateRef.current = "";
+    waitingForNativePromptRef.current = false;
+    pendingTranslatePromptRef.current = false;
 
     fitAddon.fit();
     terminal.reset();
@@ -547,6 +721,7 @@ export default function App() {
         rows: terminal.rows,
       });
       if (modeRef.current === "translate") {
+        waitingForNativePromptRef.current = true;
         writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
         localPromptVisibleRef.current = true;
       }
@@ -572,6 +747,10 @@ export default function App() {
     }
     localPromptVisibleRef.current = false;
     if (modeRef.current === "translate") {
+      nativePromptCandidateRef.current = "";
+      waitingForNativePromptRef.current = true;
+      pendingTranslatePromptRef.current = false;
+      hiddenNativePromptRef.current = "";
       terminal.focus();
       writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
       localPromptVisibleRef.current = true;
@@ -662,4 +841,24 @@ function writeTerminalAndScroll(terminal: Terminal, data: string) {
 
 function writeTerminalLineAndScroll(terminal: Terminal, line: string) {
   writeTerminalAndScroll(terminal, `${line}\r\n`);
+}
+
+function isPromptLikeFragment(fragment: string): boolean {
+  if (fragment.includes("\n") || fragment.includes("\r")) {
+    return false;
+  }
+
+  const normalized = stripAnsiSequences(fragment).trimEnd();
+  if (normalized.length === 0 || normalized.length > PROMPT_FRAGMENT_LIMIT) {
+    return false;
+  }
+
+  return /(?:[$#>%❯:]|\)\s*[>#❯])$/.test(normalized);
+}
+
+function stripAnsiSequences(input: string): string {
+  return input.replace(
+    /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g,
+    "",
+  );
 }
