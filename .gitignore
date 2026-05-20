@@ -26,6 +26,7 @@
 *.tar.gz
 *.zip
 *.7z
+*.app
 
 # Git backup directories - never commit
 .git_backup*/

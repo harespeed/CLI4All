@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::env;
 use std::path::PathBuf;
 
+pub const BUNDLED_DATA_DIR_ENV_VAR: &str = "CLI4ALL_BUNDLED_DATA_DIR";
 const MANIFEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
 const LOCAL_SHARE_RELATIVE_DIR: &str = ".local/share/cli4all/data";
 const SYSTEM_DATA_DIRS: &[&str] = &[
@@ -27,6 +28,13 @@ pub fn candidate_data_dirs() -> Vec<PathBuf> {
     }
 
     push_unique(&mut dirs, &mut seen, PathBuf::from(MANIFEST_DATA_DIR));
+
+    if let Ok(value) = env::var(BUNDLED_DATA_DIR_ENV_VAR) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            push_unique(&mut dirs, &mut seen, PathBuf::from(trimmed));
+        }
+    }
 
     if let Ok(exe_path) = env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
@@ -102,7 +110,7 @@ fn format_missing_files_error(required_files: &[&str], searched_dirs: &[PathBuf]
         .join("\n");
 
     format!(
-        "{header}\nSearched directories:\n{searched}\nSet CLI4ALL_DATA_DIR to the directory containing these files, or reinstall CLI4ALL with install_macos.sh."
+        "{header}\nSearched directories:\n{searched}\nSet CLI4ALL_DATA_DIR to a directory containing these files, or reinstall CLI4ALL so the bundled runtime data is restored."
     )
 }
 

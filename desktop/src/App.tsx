@@ -1,42 +1,77 @@
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+type TerminalMode = "native" | "translate";
 type TerminalAction = "execute" | "confirm" | "block" | "unknown_no_execute";
+type ConfirmationResolutionAction = "execute" | "cancelled";
 
-type TerminalContext = {
-  prompt: string;
+type SessionStartResponse = {
+  sessionId: number;
   currentOs: string;
 };
 
-type TerminalResponse = {
-  original_command: string;
-  detected_source: string;
-  current_os: string;
-  matched_intent: string | null;
-  translated_command: string | null;
-  risk_level: string;
-  stdout: string;
-  stderr: string;
-  exit_status: number | null;
+type SubmitTerminalLineResponse = {
+  originalCommand: string;
+  detectedSource: string;
+  currentOs: string;
+  matchedIntent: string | null;
+  translatedCommand: string | null;
+  riskLevel: string;
   action: TerminalAction;
-  risk_reason: string | null;
+  riskReason: string | null;
   message: string | null;
-  confirmation_prompt: string | null;
+  confirmationPrompt: string | null;
 };
 
+type ConfirmationResolutionResponse = {
+  action: ConfirmationResolutionAction;
+  translatedCommand: string | null;
+  message: string;
+};
+
+type PtyOutputEvent = {
+  sessionId: number;
+  data: string;
+};
+
+type PtyExitEvent = {
+  sessionId: number;
+};
+
+const MODE_RULE = "------------------------------------------------";
 const SECTION_RULE = "-----------------------------------------------------";
-const OUTPUT_RULE = "------------------------------------------------";
-const RESULT_RULE = "--------------------------------------------------";
+const TRANSLATE_PROMPT = "cli4all-translate> ";
+const CONFIRM_PROMPT = "Execute this command? [y/N]";
 
 export default function App() {
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const sessionIdRef = useRef<number | null>(null);
+  const modeRef = useRef<TerminalMode>("native");
+  const translateBufferRef = useRef("");
+  const confirmationBufferRef = useRef("");
+  const localPromptVisibleRef = useRef(false);
+  const awaitingConfirmationRef = useRef(false);
+  const destroyedRef = useRef(false);
+
+  const [mode, setMode] = useState<TerminalMode>("native");
+  const [currentOs, setCurrentOs] = useState("Starting...");
 
   useEffect(() => {
-    if (!terminalContainerRef.current) {
+    modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    const container = terminalContainerRef.current;
+    if (!container) {
       return;
     }
+
+    destroyedRef.current = false;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -68,61 +103,18 @@ export default function App() {
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.open(terminalContainerRef.current);
+    terminal.open(container);
     fitAddon.fit();
 
-    let currentInput = "";
-    let currentPrompt = "cli4all-terminal> ";
-    let busy = false;
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
 
-    const writePrompt = () => {
-      terminal.write(currentPrompt);
+    const writeStream = (data: string) => {
+      terminal.write(data);
     };
 
     const printLines = (lines: string[]) => {
       lines.forEach((line) => terminal.writeln(line));
-    };
-
-    const printTranslation = (response: TerminalResponse) => {
-      printLines([
-        "---------------- CLI4ALL Translation ----------------",
-        `Original command:   ${response.original_command}`,
-        `Detected source:    ${response.detected_source}`,
-        `Current OS:         ${response.current_os}`,
-        `Matched intent:     ${response.matched_intent ?? "unknown"}`,
-        `Translated command: ${response.translated_command ?? "unavailable"}`,
-        `Risk level:         ${response.risk_level}`,
-        SECTION_RULE,
-      ]);
-    };
-
-    const printOutput = (response: TerminalResponse) => {
-      if (!response.stdout && !response.stderr) {
-        return;
-      }
-
-      printLines(["---------------- Command Output ----------------"]);
-      if (response.stdout) {
-        terminal.writeln("[stdout]");
-        writeStream(terminal, response.stdout);
-      }
-      if (response.stderr) {
-        terminal.writeln("[stderr]");
-        writeStream(terminal, response.stderr);
-      }
-      terminal.writeln(OUTPUT_RULE);
-    };
-
-    const printResult = (response: TerminalResponse) => {
-      if (response.exit_status === null) {
-        return;
-      }
-
-      printLines([
-        "---------------- Execution Result ----------------",
-        `Exit status: ${response.exit_status}`,
-        RESULT_RULE,
-      ]);
     };
 
     const printNotice = (title: string, lines: string[]) => {
@@ -133,125 +125,454 @@ export default function App() {
       ]);
     };
 
-    const renderResponse = (response: TerminalResponse) => {
+    const printModeNotice = (nextMode: TerminalMode) => {
+      printLines([
+        "---------------- CLI4ALL Mode ----------------",
+        `Switched to ${modeLabel(nextMode)}`,
+        MODE_RULE,
+      ]);
+    };
+
+    const printTranslation = (response: SubmitTerminalLineResponse) => {
+      printLines([
+        "---------------- CLI4ALL Translation ----------------",
+        `Original command:   ${response.originalCommand}`,
+        `Detected source:    ${response.detectedSource}`,
+        `Current OS:         ${response.currentOs}`,
+        `Matched intent:     ${response.matchedIntent ?? "unknown"}`,
+        `Translated command: ${response.translatedCommand ?? "unavailable"}`,
+        `Risk level:         ${response.riskLevel}`,
+        SECTION_RULE,
+      ]);
+    };
+
+    const resetLocalInputState = () => {
+      translateBufferRef.current = "";
+      confirmationBufferRef.current = "";
+      localPromptVisibleRef.current = false;
+      awaitingConfirmationRef.current = false;
+    };
+
+    const showTranslatePrompt = (prependNewline: boolean) => {
+      if (modeRef.current !== "translate") {
+        return;
+      }
+      if (awaitingConfirmationRef.current || localPromptVisibleRef.current) {
+        return;
+      }
+      if (prependNewline) {
+        terminal.write("\r\n");
+      }
+      terminal.write(TRANSLATE_PROMPT);
+      localPromptVisibleRef.current = true;
+    };
+
+    const syncPtySize = async () => {
+      const currentTerminal = terminalRef.current;
+      const currentFitAddon = fitAddonRef.current;
+      if (!currentTerminal || !currentFitAddon) {
+        return;
+      }
+
+      currentFitAddon.fit();
+      if (sessionIdRef.current === null) {
+        return;
+      }
+
+      try {
+        await invoke("resize_pty", {
+          cols: currentTerminal.cols,
+          rows: currentTerminal.rows,
+        });
+      } catch {
+        // Ignore resize races during session restarts.
+      }
+    };
+
+    const cancelPendingConfirmation = async (printCancellation: boolean) => {
+      if (!awaitingConfirmationRef.current) {
+        return;
+      }
+
+      awaitingConfirmationRef.current = false;
+      confirmationBufferRef.current = "";
+      localPromptVisibleRef.current = false;
+
+      try {
+        await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
+          confirmed: false,
+        });
+      } catch (error) {
+        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+        return;
+      }
+
+      if (printCancellation) {
+        printNotice("CLI4ALL Notice", ["Execution cancelled."]);
+      }
+    };
+
+    const handleSubmitResponse = (response: SubmitTerminalLineResponse) => {
       printTranslation(response);
 
       switch (response.action) {
         case "execute":
-          printOutput(response);
-          printResult(response);
           break;
         case "confirm":
-          printNotice("CLI4ALL Notice", [
-            response.message ?? "Confirmation required before execution.",
-            response.confirmation_prompt ?? "Execute this command? [y/N]",
-          ]);
+          awaitingConfirmationRef.current = true;
+          confirmationBufferRef.current = "";
+          terminal.writeln(response.confirmationPrompt ?? CONFIRM_PROMPT);
           break;
         case "block":
           printNotice("CLI4ALL Safety", [
             response.message ?? "Destructive command blocked by CLI4ALL.",
-            response.risk_reason ? `Reason: ${response.risk_reason}` : "Reason: blocked by safety policy.",
+            response.riskReason
+              ? `Reason: ${response.riskReason}`
+              : "Reason: blocked by safety policy.",
           ]);
+          showTranslatePrompt(false);
           break;
         case "unknown_no_execute":
           printNotice("CLI4ALL Notice", [
             response.message ??
               "Unknown command mapping. CLI4ALL will not execute this command automatically in safe mode.",
           ]);
+          showTranslatePrompt(false);
           break;
       }
     };
 
-    const runCommand = async (command: string) => {
-      busy = true;
-      try {
-        const response = await invoke<TerminalResponse>("process_command", {
-          input: command,
-        });
-        renderResponse(response);
-      } catch (error) {
-        printNotice("CLI4ALL Notice", [
-          `Backend error: ${String(error)}`,
-        ]);
-      } finally {
-        busy = false;
-        writePrompt();
-      }
-    };
+    const submitTranslateLine = async () => {
+      const input = translateBufferRef.current;
+      translateBufferRef.current = "";
+      localPromptVisibleRef.current = false;
+      terminal.write("\r\n");
 
-    const disposable = terminal.onData((data) => {
-      if (busy) {
+      if (input.trim().length === 0) {
+        showTranslatePrompt(false);
         return;
       }
 
-      switch (data) {
-        case "\r": {
-          const command = currentInput;
-          currentInput = "";
-          terminal.write("\r\n");
-          if (command.trim().length === 0) {
-            writePrompt();
-            return;
-          }
-          void runCommand(command);
-          return;
+      try {
+        const response = await invoke<SubmitTerminalLineResponse>(
+          "submit_terminal_line",
+          {
+            input,
+          },
+        );
+        handleSubmitResponse(response);
+      } catch (error) {
+        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+        showTranslatePrompt(false);
+      }
+    };
+
+    const resolveConfirmation = async () => {
+      const approved = matchesYes(confirmationBufferRef.current);
+      confirmationBufferRef.current = "";
+      awaitingConfirmationRef.current = false;
+      localPromptVisibleRef.current = false;
+      terminal.write("\r\n");
+
+      try {
+        const response = await invoke<ConfirmationResolutionResponse>(
+          "resolve_confirmation",
+          {
+            confirmed: approved,
+          },
+        );
+
+        if (response.action === "cancelled") {
+          printNotice("CLI4ALL Notice", [response.message]);
+          showTranslatePrompt(false);
         }
-        case "\u007F": {
-          if (currentInput.length > 0) {
-            currentInput = currentInput.slice(0, -1);
+      } catch (error) {
+        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+        showTranslatePrompt(false);
+      }
+    };
+
+    const startSession = async () => {
+      resetLocalInputState();
+      sessionIdRef.current = null;
+      terminal.reset();
+
+      try {
+        const response = await invoke<SessionStartResponse>("start_pty_session", {
+          cols: terminal.cols,
+          rows: terminal.rows,
+        });
+        sessionIdRef.current = response.sessionId;
+        setCurrentOs(response.currentOs);
+        await syncPtySize();
+      } catch (error) {
+        printNotice("CLI4ALL Notice", [`Failed to start PTY session: ${String(error)}`]);
+      }
+    };
+
+    const handleNativeInput = (data: string) => {
+      void invoke("write_to_pty", { input: data }).catch((error) => {
+        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+      });
+    };
+
+    const handleTranslateInput = (data: string) => {
+      if (awaitingConfirmationRef.current) {
+        switch (data) {
+          case "\r":
+            void resolveConfirmation();
+            return;
+          case "\u007F":
+            if (confirmationBufferRef.current.length > 0) {
+              confirmationBufferRef.current = confirmationBufferRef.current.slice(0, -1);
+              terminal.write("\b \b");
+            }
+            return;
+          case "\u0003":
+            terminal.write("^C\r\n");
+            void cancelPendingConfirmation(true).then(() => {
+              showTranslatePrompt(false);
+            });
+            return;
+          default:
+            if (isPrintableInput(data)) {
+              confirmationBufferRef.current += data;
+              terminal.write(data);
+            }
+            return;
+        }
+      }
+
+      switch (data) {
+        case "\r":
+          void submitTranslateLine();
+          return;
+        case "\u007F":
+          if (translateBufferRef.current.length > 0) {
+            translateBufferRef.current = translateBufferRef.current.slice(0, -1);
             terminal.write("\b \b");
           }
           return;
-        }
-        case "\u0003": {
-          currentInput = "";
-          terminal.write("^C\r\n");
-          writePrompt();
-          return;
-        }
-        default: {
-          if (isPrintableInput(data)) {
-            currentInput += data;
-            terminal.write(data);
+        case "\u0003":
+          if (translateBufferRef.current.length > 0 || localPromptVisibleRef.current) {
+            translateBufferRef.current = "";
+            localPromptVisibleRef.current = false;
+            terminal.write("^C\r\n");
+            showTranslatePrompt(false);
+          } else {
+            handleNativeInput("\u0003");
           }
-        }
+          return;
+        default:
+          if (!isPrintableInput(data)) {
+            return;
+          }
+
+          if (!localPromptVisibleRef.current) {
+            showTranslatePrompt(true);
+          }
+
+          translateBufferRef.current += data;
+          terminal.write(data);
       }
+    };
+
+    const handleData = (data: string) => {
+      if (modeRef.current === "native") {
+        handleNativeInput(data);
+        return;
+      }
+
+      handleTranslateInput(data);
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      void syncPtySize();
+    });
+    resizeObserver.observe(container);
+
+    const handleWindowResize = () => {
+      void syncPtySize();
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+
+    const dataDisposable = terminal.onData(handleData);
+
+    let unlistenOutput: (() => void) | undefined;
+    let unlistenExit: (() => void) | undefined;
+
+    void listen<PtyOutputEvent>("pty-output", (event) => {
+      if (destroyedRef.current) {
+        return;
+      }
+      if (
+        sessionIdRef.current !== null &&
+        event.payload.sessionId !== sessionIdRef.current
+      ) {
+        return;
+      }
+      writeStream(event.payload.data);
+    }).then((unlisten) => {
+      unlistenOutput = unlisten;
     });
 
-    const handleResize = () => {
-      fitAddon.fit();
-    };
+    void listen<PtyExitEvent>("pty-exit", (event) => {
+      if (destroyedRef.current) {
+        return;
+      }
+      if (
+        sessionIdRef.current !== null &&
+        event.payload.sessionId !== sessionIdRef.current
+      ) {
+        return;
+      }
+      sessionIdRef.current = null;
+      resetLocalInputState();
+      printNotice("CLI4ALL Notice", [
+        "PTY session ended. Use New Session to start another terminal.",
+      ]);
+    }).then((unlisten) => {
+      unlistenExit = unlisten;
+    });
 
-    window.addEventListener("resize", handleResize);
-
-    invoke<TerminalContext>("get_terminal_context")
-      .then((context) => {
-        currentPrompt = context.prompt;
-        terminal.writeln(`CLI4ALL desktop terminal (${context.currentOs})`);
-        writePrompt();
-      })
-      .catch((error) => {
-        terminal.writeln(`Failed to load terminal context: ${String(error)}`);
-        writePrompt();
-      });
+    terminal.writeln("CLI4ALL PTY terminal");
+    void startSession();
 
     return () => {
-      disposable.dispose();
-      window.removeEventListener("resize", handleResize);
+      destroyedRef.current = true;
+      dataDisposable.dispose();
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
+      void invoke("stop_pty_session").catch(() => undefined);
+      unlistenOutput?.();
+      unlistenExit?.();
       terminal.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+      sessionIdRef.current = null;
     };
   }, []);
+
+  const toggleMode = async () => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    await cancelConfirmationFromToolbar();
+
+    translateBufferRef.current = "";
+    confirmationBufferRef.current = "";
+    localPromptVisibleRef.current = false;
+    awaitingConfirmationRef.current = false;
+
+    const nextMode: TerminalMode =
+      modeRef.current === "native" ? "translate" : "native";
+    modeRef.current = nextMode;
+    setMode(nextMode);
+
+    terminal.write("\r\n");
+    printToolbarModeNotice(terminal, nextMode);
+    if (nextMode === "translate") {
+      terminal.write(TRANSLATE_PROMPT);
+      localPromptVisibleRef.current = true;
+    }
+  };
+
+  const startNewSession = async () => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon) {
+      return;
+    }
+
+    await cancelConfirmationFromToolbar();
+
+    translateBufferRef.current = "";
+    confirmationBufferRef.current = "";
+    localPromptVisibleRef.current = false;
+    awaitingConfirmationRef.current = false;
+
+    fitAddon.fit();
+    terminal.reset();
+
+    try {
+      const response = await invoke<SessionStartResponse>("start_pty_session", {
+        cols: terminal.cols,
+        rows: terminal.rows,
+      });
+      sessionIdRef.current = response.sessionId;
+      setCurrentOs(response.currentOs);
+    } catch (error) {
+      terminal.writeln(`Failed to start PTY session: ${String(error)}`);
+    }
+  };
+
+  const clearTerminal = () => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    terminal.clear();
+    if (awaitingConfirmationRef.current) {
+      terminal.writeln(CONFIRM_PROMPT);
+      return;
+    }
+    localPromptVisibleRef.current = false;
+    if (modeRef.current === "translate") {
+      terminal.write(TRANSLATE_PROMPT);
+      localPromptVisibleRef.current = true;
+    }
+  };
+
+  const cancelConfirmationFromToolbar = async () => {
+    if (!awaitingConfirmationRef.current) {
+      return;
+    }
+
+    awaitingConfirmationRef.current = false;
+    confirmationBufferRef.current = "";
+    localPromptVisibleRef.current = false;
+
+    try {
+      await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
+        confirmed: false,
+      });
+    } catch {
+      // Ignore toolbar cancellation races during session restarts.
+    }
+  };
 
   return (
     <main className="app-shell">
       <section className="terminal-frame">
         <header className="frame-bar">
-          <div className="traffic-lights" aria-hidden="true">
-            <span className="dot dot-red" />
-            <span className="dot dot-yellow" />
-            <span className="dot dot-green" />
+          <div className="frame-title-block">
+            <div className="traffic-lights" aria-hidden="true">
+              <span className="dot dot-red" />
+              <span className="dot dot-yellow" />
+              <span className="dot dot-green" />
+            </div>
+            <div>
+              <div className="frame-title">CLI4ALL</div>
+              <div className="frame-subtitle">PTY-backed desktop terminal for {currentOs}</div>
+            </div>
           </div>
-          <div className="frame-title">CLI4ALL Desktop Terminal</div>
+
+          <div className="toolbar">
+            <div className="mode-pill">Current Mode: {modeLabel(mode)}</div>
+            <button className="toolbar-button" type="button" onClick={startNewSession}>
+              New Session
+            </button>
+            <button className="toolbar-button" type="button" onClick={clearTerminal}>
+              Clear Terminal
+            </button>
+            <button className="toolbar-button toolbar-button-primary" type="button" onClick={toggleMode}>
+              {mode === "native" ? "Switch to Translate Mode" : "Switch to Native Mode"}
+            </button>
+          </div>
         </header>
         <div className="terminal-surface" ref={terminalContainerRef} />
       </section>
@@ -259,14 +580,25 @@ export default function App() {
   );
 }
 
-function isPrintableInput(data: string) {
-  return data >= " " && data !== "\u007f";
+function isPrintableInput(data: string): boolean {
+  return !/[\u0000-\u001F\u007F-\u009F]/.test(data);
 }
 
-function writeStream(terminal: Terminal, value: string) {
-  const normalized = value.replace(/\r?\n/g, "\r\n");
-  terminal.write(normalized);
-  if (!normalized.endsWith("\r\n")) {
-    terminal.write("\r\n");
-  }
+function matchesYes(input: string): boolean {
+  return matchesWord(input, ["y", "yes"]);
+}
+
+function matchesWord(input: string, allowed: string[]): boolean {
+  const trimmed = input.trim().toLowerCase();
+  return allowed.includes(trimmed);
+}
+
+function modeLabel(mode: TerminalMode): string {
+  return mode === "native" ? "Native Mode" : "Translate Mode";
+}
+
+function printToolbarModeNotice(terminal: Terminal, mode: TerminalMode) {
+  terminal.writeln("---------------- CLI4ALL Mode ----------------");
+  terminal.writeln(`Switched to ${modeLabel(mode)}`);
+  terminal.writeln(MODE_RULE);
 }

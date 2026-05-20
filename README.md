@@ -10,7 +10,7 @@ CLI4ALL is becoming an independent desktop terminal application. The current rep
 
 - a Rust CLI core
 - `cli4all shell` as the Phase 1 terminal prototype
-- a Phase 2 desktop foundation in `desktop/` using Tauri, React, TypeScript, and xterm.js
+- a PTY-backed desktop app in `desktop/` using Tauri, React, TypeScript, and xterm.js
 
 In shell mode and in the desktop backend, CLI4ALL:
 
@@ -138,7 +138,7 @@ cargo run -- shell
 
 ## Desktop App
 
-The desktop foundation lives in `desktop/`.
+The desktop app lives in `desktop/`.
 
 Local development flow:
 
@@ -148,7 +148,16 @@ npm install
 npm run tauri dev
 ```
 
-This opens a Tauri window with an xterm.js terminal surface. Press Enter to send the current line to the Rust backend. The backend reuses the same translation, safety, and execution rules as `cli4all shell`.
+This opens a Tauri window with an xterm.js terminal surface, a real PTY-backed shell session, and a visible mode switch in the header.
+
+Desktop modes:
+
+- Native Mode behaves like a normal terminal. Raw keyboard input is sent directly to the PTY and the real shell prompt comes from the native shell.
+- Translate Mode buffers one local line, translates remembered cross-platform commands through the Rust CLI4ALL logic, applies the existing safety rules, and writes only the translated native command to the PTY.
+
+## Desktop App Preview
+
+`desktop/` is the macOS desktop packaging target for the Tauri app. The UI exposes a visible Native Mode / Translate Mode toggle, and `npm run tauri build` can produce `.app` and `.dmg` artifacts on macOS.
 
 ## Roadmap
 
@@ -158,25 +167,11 @@ Phase 1:
 - `cli4all shell` prototype
 - single-line translated command execution
 
-Phase 2:
+Next:
 
-- Tauri desktop terminal app foundation
-- xterm.js UI
-- command translation via Rust backend
-
-Phase 3:
-
-- PTY backend
-- real shell sessions
-- working directory and session state
-- Ctrl+C handling
-
-Phase 4:
-
-- production installers
-- `.dmg` and `.app`
-- `.msi`
-- `.deb` and AppImage
+- polish the PTY-backed desktop session UX
+- expand installer coverage beyond macOS
+- add stronger release automation for desktop artifacts
 
 ## Packaging
 

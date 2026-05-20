@@ -427,7 +427,9 @@ dependencies = [
 name = "cli4all-desktop"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cli4all",
+ "libc",
  "serde",
  "tauri",
  "tauri-build",

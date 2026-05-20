@@ -8,9 +8,11 @@ name = "cli4all_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2" }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
+anyhow = "1.0"
 cli4all = { path = "../.." }
+libc = "0.2"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "2" }
+tauri = { version = "2", features = [] }

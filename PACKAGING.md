@@ -26,7 +26,9 @@ The binary loads command mappings from `commands.c4idx` and `commands.c4dat`, an
 
 - `CLI4ALL_DATA_DIR` when set
 - `./data` from the current working directory during development
-- a sibling `data/` directory next to the executable in release archives
+- the repo `data/` directory during local development builds
+- the Tauri bundled resource directory at `Contents/Resources/data` inside the macOS app bundle
+- a sibling `data/` directory next to the executable in standalone release archives
 - `~/.local/share/cli4all/data`
 - `/usr/local/share/cli4all/data`
 - `/opt/homebrew/share/cli4all/data`
@@ -98,6 +100,54 @@ cargo run -- build-index --input data/commands.source.json --index data/commands
 ## macOS
 
 macOS-first test flow.
+
+## macOS Desktop App
+
+Build:
+
+```bash
+cd desktop
+npm install
+npm run tauri build
+```
+
+Expected artifacts:
+
+- `desktop/src-tauri/target/release/bundle/macos/CLI4ALL.app`
+- `desktop/src-tauri/target/release/bundle/dmg/CLI4ALL_*.dmg`
+
+If DMG generation fails, test the `.app` directly. The `.app` path should not be blocked by the DMG step.
+
+Bundled runtime data:
+
+- Tauri copies `../../data` into the app bundle as `Contents/Resources/data`
+- the desktop backend looks for runtime files in this order:
+  - `CLI4ALL_DATA_DIR`
+  - `./data`
+  - the repo `data/` directory for local development
+  - the Tauri bundled `Resources/data` directory
+  - `~/.local/share/cli4all/data`
+  - `/usr/local/share/cli4all/data`
+  - `/opt/homebrew/share/cli4all/data`
+  - `/usr/share/cli4all/data`
+- when files are missing, CLI4ALL prints the required filenames, every searched directory, and a suggestion to reinstall or set `CLI4ALL_DATA_DIR`
+
+Testing:
+
+- open `CLI4ALL.app` directly
+- verify the desktop header shows the visible Native Mode / Translate Mode switch
+- test Native Mode: `pwd`, `ls`, `cd ..`, `echo hello`
+- test Translate Mode: `ipconfig`, `dir`, `cls`, `rm -rf /`, `unknown_test_command`
+
+Expected behavior:
+
+- Native Mode should send raw keyboard input directly to the PTY-backed native shell
+- Translate Mode should buffer the original line locally and only send the translated native command to PTY
+- `ipconfig` should translate to the macOS native command and execute through the PTY
+- `dir` should translate to an `ls`-style command
+- `cls` should translate to `clear`
+- `rm -rf /` should be blocked
+- unknown commands should not auto-execute in Translate Mode
 
 Build:
 

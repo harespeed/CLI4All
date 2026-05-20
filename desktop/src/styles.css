@@ -1,13 +1,16 @@
 :root {
-  color: #dce7f3;
-  background:
-    radial-gradient(circle at top, rgba(59, 110, 165, 0.22), transparent 35%),
-    linear-gradient(180deg, #0f2131 0%, #040a11 100%);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --bg-top: #102338;
+  --bg-bottom: #040a11;
+  --panel: rgba(3, 10, 18, 0.9);
+  --panel-border: rgba(147, 185, 220, 0.18);
+  --panel-soft: rgba(147, 185, 220, 0.12);
+  --text-main: #dce7f3;
+  --text-muted: #90a8bc;
+  --button-bg: rgba(20, 39, 58, 0.92);
+  --button-bg-hover: rgba(35, 63, 92, 0.98);
+  --button-accent: #c8ec86;
+  --button-accent-text: #102214;
+  --button-accent-hover: #ddf7aa;
 }
 
 * {
@@ -23,27 +26,36 @@ body,
 
 body {
   min-height: 100vh;
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at top, rgba(73, 129, 188, 0.24), transparent 35%),
+    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .app-shell {
   min-height: 100vh;
-  padding: 28px;
+  padding: 24px;
   display: flex;
   align-items: stretch;
   justify-content: center;
 }
 
 .terminal-frame {
-  width: min(1200px, 100%);
-  min-height: calc(100vh - 56px);
+  width: min(1280px, 100%);
+  min-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(147, 185, 220, 0.18);
+  border: 1px solid var(--panel-border);
   border-radius: 22px;
   overflow: hidden;
-  background: rgba(3, 10, 18, 0.88);
+  background: var(--panel);
   box-shadow:
-    0 32px 80px rgba(0, 0, 0, 0.45),
+    0 32px 80px rgba(0, 0, 0, 0.46),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(18px);
 }
@@ -51,11 +63,19 @@ body {
 .frame-bar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-bottom: 1px solid rgba(147, 185, 220, 0.12);
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--panel-soft);
   background:
-    linear-gradient(90deg, rgba(23, 44, 66, 0.95), rgba(10, 19, 31, 0.88));
+    linear-gradient(90deg, rgba(24, 46, 67, 0.95), rgba(8, 18, 28, 0.9));
+}
+
+.frame-title-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 
 .traffic-lights {
@@ -86,7 +106,64 @@ body {
   font-size: 12px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9bb3c8;
+  color: #d7e6f4;
+}
+
+.frame-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mode-pill {
+  padding: 9px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(182, 216, 242, 0.18);
+  background: rgba(10, 22, 35, 0.78);
+  color: #cde2f3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toolbar-button {
+  appearance: none;
+  border: 1px solid rgba(182, 216, 242, 0.16);
+  background: var(--button-bg);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease,
+    border-color 120ms ease;
+}
+
+.toolbar-button:hover {
+  background: var(--button-bg-hover);
+  border-color: rgba(182, 216, 242, 0.28);
+  transform: translateY(-1px);
+}
+
+.toolbar-button-primary {
+  background: var(--button-accent);
+  color: var(--button-accent-text);
+  border-color: transparent;
+}
+
+.toolbar-button-primary:hover {
+  background: var(--button-accent-hover);
+  border-color: transparent;
 }
 
 .terminal-surface {
@@ -103,6 +180,18 @@ body {
   border-radius: 14px;
 }
 
+@media (max-width: 900px) {
+  .frame-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 12px;
@@ -115,5 +204,15 @@ body {
 
   .terminal-surface {
     padding: 12px;
+  }
+
+  .toolbar {
+    gap: 8px;
+  }
+
+  .toolbar-button,
+  .mode-pill {
+    width: 100%;
+    justify-content: center;
   }
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CLI4ALL Desktop",
+  "productName": "CLI4ALL",
   "version": "0.1.0",
-  "identifier": "com.cli4all.desktop",
+  "identifier": "com.harespeed.cli4all",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "CLI4ALL Desktop",
+        "title": "CLI4ALL",
         "width": 1180,
         "height": 760,
         "minWidth": 840,
@@ -23,7 +23,16 @@
     ]
   },
   "bundle": {
-    "active": false,
-    "icon": []
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "resources": {
+      "../../data": "data"
+    }
   }
 }
