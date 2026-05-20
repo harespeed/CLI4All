@@ -82,3 +82,29 @@ fn low_risk_known_command_is_marked_executable() {
     assert_eq!(decision.translated_command.as_deref(), Some("xdg-open ."));
     assert_eq!(decision.action, ShellAction::Execute);
 }
+
+#[test]
+fn translates_pwd_to_windows_without_marking_unknown() {
+    let store = load_command_catalog().expect("command catalog should load");
+    let risk_catalog = load_risk_catalog().expect("risk catalog should load");
+
+    let decision = decide_shell_command("pwd", "windows", &store, &risk_catalog)
+        .expect("shell decision should succeed");
+
+    assert_eq!(decision.intent.as_deref(), Some("print_working_directory"));
+    assert_eq!(decision.translated_command.as_deref(), Some("Get-Location"));
+    assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
+fn translates_whoami_to_macos_without_marking_unknown() {
+    let store = load_command_catalog().expect("command catalog should load");
+    let risk_catalog = load_risk_catalog().expect("risk catalog should load");
+
+    let decision = decide_shell_command("whoami", "macos", &store, &risk_catalog)
+        .expect("shell decision should succeed");
+
+    assert_eq!(decision.intent.as_deref(), Some("print_current_user"));
+    assert_eq!(decision.translated_command.as_deref(), Some("whoami"));
+    assert_eq!(decision.action, ShellAction::Execute);
+}

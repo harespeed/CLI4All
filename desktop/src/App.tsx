@@ -24,12 +24,22 @@ type SubmitTerminalLineResponse = {
   riskReason: string | null;
   message: string | null;
   confirmationPrompt: string | null;
+  stdout: string;
+  stderr: string;
+  exitStatus: number | null;
+  currentDir: string;
+  clearDisplay: boolean;
 };
 
 type ConfirmationResolutionResponse = {
   action: ConfirmationResolutionAction;
   translatedCommand: string | null;
   message: string;
+  stdout: string;
+  stderr: string;
+  exitStatus: number | null;
+  currentDir: string;
+  clearDisplay: boolean;
 };
 
 type PtyOutputEvent = {
@@ -47,8 +57,7 @@ const TRANSLATE_PROMPT = "cli4all-translate> ";
 const CONFIRM_PROMPT = "Execute this command? [y/N]";
 const SCROLLBACK_LINES = 20000;
 const BOTTOM_SCROLL_THRESHOLD = 2;
-const TRANSLATE_COMPLETION_TOKEN = "\u001f__CLI4ALL_TRANSLATE_DONE__\u001f";
-const PROMPT_FRAGMENT_LIMIT = 240;
+const BACKGROUND_PTY_BUFFER_LIMIT = 200_000;
 
 export default function App() {
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
@@ -60,11 +69,8 @@ export default function App() {
   const confirmationBufferRef = useRef("");
   const localPromptVisibleRef = useRef(false);
   const awaitingConfirmationRef = useRef(false);
+  const hiddenPtyOutputRef = useRef("");
   const destroyedRef = useRef(false);
-  const hiddenNativePromptRef = useRef("");
-  const nativePromptCandidateRef = useRef("");
-  const waitingForNativePromptRef = useRef(false);
-  const pendingTranslatePromptRef = useRef(false);
 
   const [mode, setMode] = useState<TerminalMode>("native");
   const [currentOs, setCurrentOs] = useState("Starting...");
@@ -84,6 +90,7 @@ export default function App() {
     const terminal = new Terminal({
       cursorBlink: true,
       scrollback: SCROLLBACK_LINES,
+      convertEol: true,
       fontFamily: '"SFMono-Regular", "IBM Plex Mono", "Menlo", monospace',
       fontSize: 14,
       lineHeight: 1.35,
@@ -175,20 +182,39 @@ export default function App() {
       ]);
     };
 
-    const resetLocalInputState = () => {
+    const printExecutionSections = (
+      stdout: string,
+      stderr: string,
+      exitStatus: number | null,
+    ) => {
+      if (stdout.length > 0 || stderr.length > 0) {
+        printLines(["---------------- Command Output ----------------"]);
+
+        if (stdout.length > 0) {
+          writeTerminalLine("[stdout]", "always");
+          writeTerminal(ensureTrailingNewline(stdout), "always");
+        }
+
+        if (stderr.length > 0) {
+          writeTerminalLine("[stderr]", "always");
+          writeTerminal(ensureTrailingNewline(stderr), "always");
+        }
+
+        printLines(["------------------------------------------------"]);
+      }
+
+      printLines([
+        "---------------- Execution Result ----------------",
+        `Exit status: ${exitStatus ?? "unavailable"}`,
+        "--------------------------------------------------",
+      ]);
+    };
+
+    const resetLocalState = () => {
       translateBufferRef.current = "";
       confirmationBufferRef.current = "";
       localPromptVisibleRef.current = false;
       awaitingConfirmationRef.current = false;
-    };
-
-    const resetNativePromptState = (clearHiddenPrompt: boolean) => {
-      nativePromptCandidateRef.current = "";
-      waitingForNativePromptRef.current = false;
-      pendingTranslatePromptRef.current = false;
-      if (clearHiddenPrompt) {
-        hiddenNativePromptRef.current = "";
-      }
     };
 
     const showTranslatePrompt = (prependNewline: boolean) => {
@@ -198,120 +224,13 @@ export default function App() {
       if (awaitingConfirmationRef.current || localPromptVisibleRef.current) {
         return;
       }
+
       if (prependNewline) {
         writeTerminal("\r\n", "always");
       }
+
       writeTerminal(TRANSLATE_PROMPT, "always");
       localPromptVisibleRef.current = true;
-    };
-
-    const revealHiddenNativePrompt = () => {
-      const prompt = hiddenNativePromptRef.current || nativePromptCandidateRef.current;
-      if (prompt.length > 0) {
-        writeTerminal(prompt, "always");
-      }
-      hiddenNativePromptRef.current = "";
-      nativePromptCandidateRef.current = "";
-      waitingForNativePromptRef.current = false;
-      pendingTranslatePromptRef.current = false;
-    };
-
-    const handleSuppressedNativePrompt = () => {
-      if (!pendingTranslatePromptRef.current) {
-        return;
-      }
-      pendingTranslatePromptRef.current = false;
-      showTranslatePrompt(false);
-    };
-
-    const processNativePromptCandidate = (
-      incomingData: string,
-    ): { visibleData: string; promptSuppressed: boolean } => {
-      nativePromptCandidateRef.current += incomingData;
-
-      const candidate = nativePromptCandidateRef.current;
-      const newlineMatch = candidate.match(/\r?\n/);
-
-      if (newlineMatch && newlineMatch.index !== undefined) {
-        const newlineIndex = newlineMatch.index;
-        const newlineLen = newlineMatch[0].length;
-        const fragment = candidate.slice(0, newlineIndex);
-        const remainder = candidate.slice(newlineIndex + newlineLen);
-
-        nativePromptCandidateRef.current = "";
-
-        if (isPromptLikeFragment(fragment)) {
-          hiddenNativePromptRef.current = fragment;
-          waitingForNativePromptRef.current = false;
-          return {
-            visibleData: remainder,
-            promptSuppressed: true,
-          };
-        }
-
-        return {
-          visibleData: candidate,
-          promptSuppressed: false,
-        };
-      }
-
-      if (candidate.length > PROMPT_FRAGMENT_LIMIT) {
-        nativePromptCandidateRef.current = "";
-        return {
-          visibleData: candidate,
-          promptSuppressed: false,
-        };
-      }
-
-      if (isPromptLikeFragment(candidate)) {
-        hiddenNativePromptRef.current = candidate;
-        nativePromptCandidateRef.current = "";
-        waitingForNativePromptRef.current = false;
-        return {
-          visibleData: "",
-          promptSuppressed: true,
-        };
-      }
-
-      return {
-        visibleData: "",
-        promptSuppressed: false,
-      };
-    };
-
-    const processTranslatePtyOutput = (
-      rawData: string,
-    ): { visibleData: string; promptSuppressed: boolean } => {
-      let remaining = rawData;
-      let visibleData = "";
-      let promptSuppressed = false;
-
-      while (remaining.length > 0) {
-        if (waitingForNativePromptRef.current) {
-          const result = processNativePromptCandidate(remaining);
-          visibleData += result.visibleData;
-          promptSuppressed = promptSuppressed || result.promptSuppressed;
-          break;
-        }
-
-        const markerIndex = remaining.indexOf(TRANSLATE_COMPLETION_TOKEN);
-        if (markerIndex === -1) {
-          visibleData += remaining;
-          break;
-        }
-
-        visibleData += remaining.slice(0, markerIndex);
-        remaining = remaining.slice(
-          markerIndex + TRANSLATE_COMPLETION_TOKEN.length,
-        );
-        waitingForNativePromptRef.current = true;
-        nativePromptCandidateRef.current = "";
-      }
-
-      return {
-        visibleData,
-        promptSuppressed,
-      };
     };
 
     const syncPtySize = async () => {
@@ -334,6 +253,16 @@ export default function App() {
       } catch {
         // Ignore resize races during session restarts.
       }
+    };
+
+    const printTranslateExecution = (
+      response: Pick<
+        SubmitTerminalLineResponse,
+        "stdout" | "stderr" | "exitStatus" | "clearDisplay"
+      >,
+    ) => {
+      printExecutionSections(response.stdout, response.stderr, response.exitStatus);
+      showTranslatePrompt(false);
     };
 
     const cancelPendingConfirmation = async (printCancellation: boolean) => {
@@ -360,10 +289,16 @@ export default function App() {
     };
 
     const handleSubmitResponse = (response: SubmitTerminalLineResponse) => {
+      if (response.clearDisplay) {
+        terminal.clear();
+        terminal.scrollToBottom();
+      }
+
       printTranslation(response);
 
       switch (response.action) {
         case "execute":
+          printTranslateExecution(response);
           break;
         case "confirm":
           awaitingConfirmationRef.current = true;
@@ -407,12 +342,6 @@ export default function App() {
             input,
           },
         );
-        if (response.action === "execute") {
-          hiddenNativePromptRef.current = "";
-          nativePromptCandidateRef.current = "";
-          waitingForNativePromptRef.current = false;
-          pendingTranslatePromptRef.current = true;
-        }
         handleSubmitResponse(response);
       } catch (error) {
         printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
@@ -438,12 +367,20 @@ export default function App() {
         if (response.action === "cancelled") {
           printNotice("CLI4ALL Notice", [response.message]);
           showTranslatePrompt(false);
-        } else {
-          hiddenNativePromptRef.current = "";
-          nativePromptCandidateRef.current = "";
-          waitingForNativePromptRef.current = false;
-          pendingTranslatePromptRef.current = true;
+          return;
         }
+
+        if (response.clearDisplay) {
+          terminal.clear();
+          terminal.scrollToBottom();
+        }
+
+        printExecutionSections(
+          response.stdout,
+          response.stderr,
+          response.exitStatus,
+        );
+        showTranslatePrompt(false);
       } catch (error) {
         printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
         showTranslatePrompt(false);
@@ -451,8 +388,8 @@ export default function App() {
     };
 
     const startSession = async () => {
-      resetLocalInputState();
-      resetNativePromptState(true);
+      resetLocalState();
+      hiddenPtyOutputRef.current = "";
       sessionIdRef.current = null;
       terminal.reset();
       terminal.scrollToBottom();
@@ -466,12 +403,14 @@ export default function App() {
         sessionIdRef.current = response.sessionId;
         setCurrentOs(response.currentOs);
         await syncPtySize();
+
         if (modeRef.current === "translate") {
-          waitingForNativePromptRef.current = true;
           showTranslatePrompt(false);
         }
       } catch (error) {
-        printNotice("CLI4ALL Notice", [`Failed to start PTY session: ${String(error)}`]);
+        printNotice("CLI4ALL Notice", [
+          `Failed to start PTY session: ${String(error)}`,
+        ]);
       }
     };
 
@@ -491,7 +430,8 @@ export default function App() {
           case "\u007F":
             if (confirmationBufferRef.current.length > 0) {
               terminal.scrollToBottom();
-              confirmationBufferRef.current = confirmationBufferRef.current.slice(0, -1);
+              confirmationBufferRef.current =
+                confirmationBufferRef.current.slice(0, -1);
               writeTerminal("\b \b", "always");
             }
             return;
@@ -584,13 +524,10 @@ export default function App() {
       }
 
       if (modeRef.current === "translate") {
-        const result = processTranslatePtyOutput(event.payload.data);
-        if (result.visibleData.length > 0) {
-          writeStream(result.visibleData);
-        }
-        if (result.promptSuppressed) {
-          handleSuppressedNativePrompt();
-        }
+        hiddenPtyOutputRef.current = appendBufferedPtyOutput(
+          hiddenPtyOutputRef.current,
+          event.payload.data,
+        );
         return;
       }
 
@@ -610,8 +547,8 @@ export default function App() {
         return;
       }
       sessionIdRef.current = null;
-      resetLocalInputState();
-      resetNativePromptState(true);
+      hiddenPtyOutputRef.current = "";
+      resetLocalState();
       printNotice("CLI4ALL Notice", [
         "PTY session ended. Use New Session to start another terminal.",
       ]);
@@ -655,34 +592,23 @@ export default function App() {
     modeRef.current = nextMode;
     setMode(nextMode);
 
-    const bufferedNativePrompt =
-      hiddenNativePromptRef.current || nativePromptCandidateRef.current;
-
     terminal.scrollToBottom();
-    if (nextMode === "translate") {
-      hiddenNativePromptRef.current = "";
-      nativePromptCandidateRef.current = "";
-      waitingForNativePromptRef.current = true;
-      pendingTranslatePromptRef.current = false;
-      writeTerminalAndScroll(terminal, "\r\x1b[2K");
-    }
     writeTerminalAndScroll(terminal, "\r\n");
     printToolbarModeNotice(terminal, nextMode);
+
     if (nextMode === "translate") {
       terminal.focus();
-      terminal.scrollToBottom();
       writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
       localPromptVisibleRef.current = true;
-    } else {
-      hiddenNativePromptRef.current = "";
-      nativePromptCandidateRef.current = "";
-      waitingForNativePromptRef.current = false;
-      pendingTranslatePromptRef.current = false;
-      if (bufferedNativePrompt.length > 0) {
-        writeTerminalAndScroll(terminal, bufferedNativePrompt);
-      } else if (sessionIdRef.current !== null) {
-        void invoke("write_to_pty", { input: "\n" }).catch(() => undefined);
-      }
+      return;
+    }
+
+    const bufferedOutput = hiddenPtyOutputRef.current;
+    hiddenPtyOutputRef.current = "";
+    if (bufferedOutput.length > 0) {
+      writeTerminalAndScroll(terminal, bufferedOutput);
+    } else if (sessionIdRef.current !== null) {
+      void invoke("write_to_pty", { input: "\n" }).catch(() => undefined);
     }
   };
 
@@ -699,10 +625,7 @@ export default function App() {
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
     awaitingConfirmationRef.current = false;
-    hiddenNativePromptRef.current = "";
-    nativePromptCandidateRef.current = "";
-    waitingForNativePromptRef.current = false;
-    pendingTranslatePromptRef.current = false;
+    hiddenPtyOutputRef.current = "";
 
     fitAddon.fit();
     terminal.reset();
@@ -721,7 +644,6 @@ export default function App() {
         rows: terminal.rows,
       });
       if (modeRef.current === "translate") {
-        waitingForNativePromptRef.current = true;
         writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
         localPromptVisibleRef.current = true;
       }
@@ -741,19 +663,19 @@ export default function App() {
 
     terminal.clear();
     terminal.scrollToBottom();
-    if (awaitingConfirmationRef.current) {
-      writeTerminalLineAndScroll(terminal, CONFIRM_PROMPT);
-      return;
-    }
-    localPromptVisibleRef.current = false;
+
     if (modeRef.current === "translate") {
-      nativePromptCandidateRef.current = "";
-      waitingForNativePromptRef.current = true;
-      pendingTranslatePromptRef.current = false;
-      hiddenNativePromptRef.current = "";
-      terminal.focus();
+      translateBufferRef.current = "";
+      confirmationBufferRef.current = "";
+      awaitingConfirmationRef.current = false;
+      localPromptVisibleRef.current = false;
       writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
       localPromptVisibleRef.current = true;
+      return;
+    }
+
+    if (sessionIdRef.current !== null) {
+      void invoke("write_to_pty", { input: "\n" }).catch(() => undefined);
     }
   };
 
@@ -787,7 +709,9 @@ export default function App() {
             </div>
             <div>
               <div className="frame-title">CLI4ALL</div>
-              <div className="frame-subtitle">PTY-backed desktop terminal for {currentOs}</div>
+              <div className="frame-subtitle">
+                PTY-backed desktop terminal for {currentOs}
+              </div>
             </div>
           </div>
 
@@ -799,8 +723,14 @@ export default function App() {
             <button className="toolbar-button" type="button" onClick={clearTerminal}>
               Clear Terminal
             </button>
-            <button className="toolbar-button toolbar-button-primary" type="button" onClick={toggleMode}>
-              {mode === "native" ? "Switch to Translate Mode" : "Switch to Native Mode"}
+            <button
+              className="toolbar-button toolbar-button-primary"
+              type="button"
+              onClick={toggleMode}
+            >
+              {mode === "native"
+                ? "Switch to Translate Mode"
+                : "Switch to Native Mode"}
             </button>
           </div>
         </header>
@@ -843,22 +773,15 @@ function writeTerminalLineAndScroll(terminal: Terminal, line: string) {
   writeTerminalAndScroll(terminal, `${line}\r\n`);
 }
 
-function isPromptLikeFragment(fragment: string): boolean {
-  if (fragment.includes("\n") || fragment.includes("\r")) {
-    return false;
+function appendBufferedPtyOutput(current: string, next: string): string {
+  const combined = current + next;
+  if (combined.length <= BACKGROUND_PTY_BUFFER_LIMIT) {
+    return combined;
   }
 
-  const normalized = stripAnsiSequences(fragment).trimEnd();
-  if (normalized.length === 0 || normalized.length > PROMPT_FRAGMENT_LIMIT) {
-    return false;
-  }
-
-  return /(?:[$#>%❯:]|\)\s*[>#❯])$/.test(normalized);
+  return combined.slice(combined.length - BACKGROUND_PTY_BUFFER_LIMIT);
 }
 
-function stripAnsiSequences(input: string): string {
-  return input.replace(
-    /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g,
-    "",
-  );
+function ensureTrailingNewline(stream: string): string {
+  return stream.endsWith("\n") ? stream : `${stream}\n`;
 }

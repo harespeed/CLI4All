@@ -56,6 +56,39 @@ commands:
     notes:
       - This affects terminal display only and does not modify files.
 
+  - intent: print_working_directory
+    description: Print the current working directory.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - cd
+      powershell:
+        - Get-Location
+        - pwd
+      macos:
+        - pwd
+      ubuntu:
+        - pwd
+    notes:
+      - Translate Mode keeps its own working directory and reports it explicitly.
+
+  - intent: print_current_user
+    description: Print the current user account name.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - whoami
+      powershell:
+        - whoami
+      macos:
+        - whoami
+      ubuntu:
+        - whoami
+    notes:
+      - This is informational and does not modify system state.
+
   - intent: open_current_directory
     description: Open the current directory in the platform file browser.
     category: shell

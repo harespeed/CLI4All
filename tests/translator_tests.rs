@@ -34,6 +34,26 @@ fn translates_cls_to_ubuntu_equivalents() {
 }
 
 #[test]
+fn translates_pwd_to_windows_equivalent() {
+    let catalog = load_command_catalog().expect("command catalog should load");
+    let result = translate_command("pwd", "windows", &catalog)
+        .expect("translation should succeed")
+        .expect("pwd should be known");
+
+    assert_eq!(result.suggestions, vec!["Get-Location", "pwd"]);
+}
+
+#[test]
+fn translates_whoami_to_macos_equivalent() {
+    let catalog = load_command_catalog().expect("command catalog should load");
+    let result = translate_command("whoami", "macos", &catalog)
+        .expect("translation should succeed")
+        .expect("whoami should be known");
+
+    assert_eq!(result.suggestions, vec!["whoami"]);
+}
+
+#[test]
 fn translates_tasklist_to_ubuntu_equivalents() {
     let catalog = load_command_catalog().expect("command catalog should load");
     let result = translate_command("tasklist", "ubuntu", &catalog)
