@@ -45,6 +45,8 @@ const MODE_RULE = "------------------------------------------------";
 const SECTION_RULE = "-----------------------------------------------------";
 const TRANSLATE_PROMPT = "cli4all-translate> ";
 const CONFIRM_PROMPT = "Execute this command? [y/N]";
+const SCROLLBACK_LINES = 20000;
+const BOTTOM_SCROLL_THRESHOLD = 2;
 
 export default function App() {
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
@@ -75,6 +77,7 @@ export default function App() {
 
     const terminal = new Terminal({
       cursorBlink: true,
+      scrollback: SCROLLBACK_LINES,
       fontFamily: '"SFMono-Regular", "IBM Plex Mono", "Menlo", monospace',
       fontSize: 14,
       lineHeight: 1.35,
@@ -108,13 +111,41 @@ export default function App() {
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    terminal.focus();
+
+    const isViewportNearBottom = () => {
+      const buffer = terminal.buffer.active;
+      return buffer.baseY - buffer.viewportY <= BOTTOM_SCROLL_THRESHOLD;
+    };
+
+    const writeTerminal = (
+      data: string,
+      scrollBehavior: "always" | "if-bottom" | "never" = "never",
+    ) => {
+      const shouldScroll =
+        scrollBehavior === "always" ||
+        (scrollBehavior === "if-bottom" && isViewportNearBottom());
+
+      terminal.write(data, () => {
+        if (shouldScroll) {
+          terminal.scrollToBottom();
+        }
+      });
+    };
+
+    const writeTerminalLine = (
+      line: string,
+      scrollBehavior: "always" | "if-bottom" | "never" = "never",
+    ) => {
+      writeTerminal(`${line}\r\n`, scrollBehavior);
+    };
 
     const writeStream = (data: string) => {
-      terminal.write(data);
+      writeTerminal(data, "if-bottom");
     };
 
     const printLines = (lines: string[]) => {
-      lines.forEach((line) => terminal.writeln(line));
+      lines.forEach((line) => writeTerminalLine(line, "always"));
     };
 
     const printNotice = (title: string, lines: string[]) => {
@@ -122,14 +153,6 @@ export default function App() {
         `---------------- ${title} ----------------`,
         ...lines,
         SECTION_RULE,
-      ]);
-    };
-
-    const printModeNotice = (nextMode: TerminalMode) => {
-      printLines([
-        "---------------- CLI4ALL Mode ----------------",
-        `Switched to ${modeLabel(nextMode)}`,
-        MODE_RULE,
       ]);
     };
 
@@ -161,9 +184,9 @@ export default function App() {
         return;
       }
       if (prependNewline) {
-        terminal.write("\r\n");
+        writeTerminal("\r\n", "always");
       }
-      terminal.write(TRANSLATE_PROMPT);
+      writeTerminal(TRANSLATE_PROMPT, "always");
       localPromptVisibleRef.current = true;
     };
 
@@ -221,7 +244,7 @@ export default function App() {
         case "confirm":
           awaitingConfirmationRef.current = true;
           confirmationBufferRef.current = "";
-          terminal.writeln(response.confirmationPrompt ?? CONFIRM_PROMPT);
+          writeTerminalLine(response.confirmationPrompt ?? CONFIRM_PROMPT, "always");
           break;
         case "block":
           printNotice("CLI4ALL Safety", [
@@ -246,7 +269,7 @@ export default function App() {
       const input = translateBufferRef.current;
       translateBufferRef.current = "";
       localPromptVisibleRef.current = false;
-      terminal.write("\r\n");
+      writeTerminal("\r\n", "always");
 
       if (input.trim().length === 0) {
         showTranslatePrompt(false);
@@ -272,7 +295,7 @@ export default function App() {
       confirmationBufferRef.current = "";
       awaitingConfirmationRef.current = false;
       localPromptVisibleRef.current = false;
-      terminal.write("\r\n");
+      writeTerminal("\r\n", "always");
 
       try {
         const response = await invoke<ConfirmationResolutionResponse>(
@@ -296,6 +319,8 @@ export default function App() {
       resetLocalInputState();
       sessionIdRef.current = null;
       terminal.reset();
+      terminal.scrollToBottom();
+      terminal.focus();
 
       try {
         const response = await invoke<SessionStartResponse>("start_pty_session", {
@@ -305,12 +330,16 @@ export default function App() {
         sessionIdRef.current = response.sessionId;
         setCurrentOs(response.currentOs);
         await syncPtySize();
+        if (modeRef.current === "translate") {
+          showTranslatePrompt(false);
+        }
       } catch (error) {
         printNotice("CLI4ALL Notice", [`Failed to start PTY session: ${String(error)}`]);
       }
     };
 
     const handleNativeInput = (data: string) => {
+      terminal.scrollToBottom();
       void invoke("write_to_pty", { input: data }).catch((error) => {
         printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
       });
@@ -324,20 +353,22 @@ export default function App() {
             return;
           case "\u007F":
             if (confirmationBufferRef.current.length > 0) {
+              terminal.scrollToBottom();
               confirmationBufferRef.current = confirmationBufferRef.current.slice(0, -1);
-              terminal.write("\b \b");
+              writeTerminal("\b \b", "always");
             }
             return;
           case "\u0003":
-            terminal.write("^C\r\n");
+            writeTerminal("^C\r\n", "always");
             void cancelPendingConfirmation(true).then(() => {
               showTranslatePrompt(false);
             });
             return;
           default:
             if (isPrintableInput(data)) {
+              terminal.scrollToBottom();
               confirmationBufferRef.current += data;
-              terminal.write(data);
+              writeTerminal(data, "always");
             }
             return;
         }
@@ -349,15 +380,16 @@ export default function App() {
           return;
         case "\u007F":
           if (translateBufferRef.current.length > 0) {
+            terminal.scrollToBottom();
             translateBufferRef.current = translateBufferRef.current.slice(0, -1);
-            terminal.write("\b \b");
+            writeTerminal("\b \b", "always");
           }
           return;
         case "\u0003":
           if (translateBufferRef.current.length > 0 || localPromptVisibleRef.current) {
             translateBufferRef.current = "";
             localPromptVisibleRef.current = false;
-            terminal.write("^C\r\n");
+            writeTerminal("^C\r\n", "always");
             showTranslatePrompt(false);
           } else {
             handleNativeInput("\u0003");
@@ -368,12 +400,13 @@ export default function App() {
             return;
           }
 
+          terminal.scrollToBottom();
           if (!localPromptVisibleRef.current) {
             showTranslatePrompt(true);
           }
 
           translateBufferRef.current += data;
-          terminal.write(data);
+          writeTerminal(data, "always");
       }
     };
 
@@ -436,7 +469,7 @@ export default function App() {
       unlistenExit = unlisten;
     });
 
-    terminal.writeln("CLI4ALL PTY terminal");
+    writeTerminalLine("CLI4ALL PTY terminal", "always");
     void startSession();
 
     return () => {
@@ -472,10 +505,13 @@ export default function App() {
     modeRef.current = nextMode;
     setMode(nextMode);
 
-    terminal.write("\r\n");
+    terminal.scrollToBottom();
+    writeTerminalAndScroll(terminal, "\r\n");
     printToolbarModeNotice(terminal, nextMode);
     if (nextMode === "translate") {
-      terminal.write(TRANSLATE_PROMPT);
+      terminal.focus();
+      terminal.scrollToBottom();
+      writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
       localPromptVisibleRef.current = true;
     }
   };
@@ -496,6 +532,8 @@ export default function App() {
 
     fitAddon.fit();
     terminal.reset();
+    terminal.scrollToBottom();
+    terminal.focus();
 
     try {
       const response = await invoke<SessionStartResponse>("start_pty_session", {
@@ -504,8 +542,19 @@ export default function App() {
       });
       sessionIdRef.current = response.sessionId;
       setCurrentOs(response.currentOs);
+      await invoke("resize_pty", {
+        cols: terminal.cols,
+        rows: terminal.rows,
+      });
+      if (modeRef.current === "translate") {
+        writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
+        localPromptVisibleRef.current = true;
+      }
     } catch (error) {
-      terminal.writeln(`Failed to start PTY session: ${String(error)}`);
+      writeTerminalLineAndScroll(
+        terminal,
+        `Failed to start PTY session: ${String(error)}`,
+      );
     }
   };
 
@@ -516,13 +565,15 @@ export default function App() {
     }
 
     terminal.clear();
+    terminal.scrollToBottom();
     if (awaitingConfirmationRef.current) {
-      terminal.writeln(CONFIRM_PROMPT);
+      writeTerminalLineAndScroll(terminal, CONFIRM_PROMPT);
       return;
     }
     localPromptVisibleRef.current = false;
     if (modeRef.current === "translate") {
-      terminal.write(TRANSLATE_PROMPT);
+      terminal.focus();
+      writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
       localPromptVisibleRef.current = true;
     }
   };
@@ -598,7 +649,17 @@ function modeLabel(mode: TerminalMode): string {
 }
 
 function printToolbarModeNotice(terminal: Terminal, mode: TerminalMode) {
-  terminal.writeln("---------------- CLI4ALL Mode ----------------");
-  terminal.writeln(`Switched to ${modeLabel(mode)}`);
-  terminal.writeln(MODE_RULE);
+  writeTerminalAndScroll(terminal, "---------------- CLI4ALL Mode ----------------\r\n");
+  writeTerminalAndScroll(terminal, `Switched to ${modeLabel(mode)}\r\n`);
+  writeTerminalAndScroll(terminal, `${MODE_RULE}\r\n`);
+}
+
+function writeTerminalAndScroll(terminal: Terminal, data: string) {
+  terminal.write(data, () => {
+    terminal.scrollToBottom();
+  });
+}
+
+function writeTerminalLineAndScroll(terminal: Terminal, line: string) {
+  writeTerminalAndScroll(terminal, `${line}\r\n`);
 }
