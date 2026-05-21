@@ -85,6 +85,7 @@ type AppearanceSettings = {
   stderrColor: string;
   noticeColor: string;
   infoColor: string;
+  suggestionColor: string;
   terminalForeground: string;
   terminalBackground: string;
   cursorColor: string;
@@ -96,6 +97,7 @@ type StyledSegment = {
   color?: string;
   bold?: boolean;
   italic?: boolean;
+  dim?: boolean;
 };
 
 type TerminalThemeLike = {
@@ -128,6 +130,8 @@ const BOTTOM_SCROLL_THRESHOLD = 2;
 const BACKGROUND_PTY_BUFFER_LIMIT = 200_000;
 const BUILTIN_SOURCE = "CLI4ALL Built-in";
 const APPEARANCE_STORAGE_KEY = "cli4all.desktop.appearance";
+const TRANSLATE_HISTORY_STORAGE_KEY = "cli4all.translate.history.v1";
+const TRANSLATE_HISTORY_LIMIT = 500;
 const FONT_FAMILIES = [
   "Menlo",
   "Monaco",
@@ -158,6 +162,7 @@ const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   stderrColor: "#ffb7ab",
   noticeColor: "#98c8ff",
   infoColor: "#8fb7d6",
+  suggestionColor: "#6a7d8f",
   terminalForeground: "#dce7f3",
   terminalBackground: "#07111c",
   cursorColor: "#f8d66d",
@@ -173,6 +178,7 @@ export default function App() {
   const detailModeRef = useRef<DetailMode>("clean");
   const appearanceRef = useRef<AppearanceSettings>(DEFAULT_APPEARANCE_SETTINGS);
   const translateBufferRef = useRef("");
+  const translateGhostRef = useRef("");
   const confirmationBufferRef = useRef("");
   const localPromptVisibleRef = useRef(false);
   const awaitingConfirmationRef = useRef(false);
@@ -183,6 +189,9 @@ export default function App() {
   const pendingConfirmationDetailsRef =
     useRef<PendingConfirmationDetails | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const translateHistoryRef = useRef<string[]>([]);
+  const translateHistoryIndexRef = useRef<number | null>(null);
+  const translateHistoryDraftRef = useRef("");
 
   const [mode, setMode] = useState<TerminalMode>("native");
   const [detailMode, setDetailMode] = useState<DetailMode>("clean");
@@ -191,6 +200,9 @@ export default function App() {
     loadAppearanceSettings,
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [translateHistory, setTranslateHistory] = useState<string[]>(
+    loadTranslateHistory,
+  );
 
   useEffect(() => {
     modeRef.current = mode;
@@ -205,6 +217,10 @@ export default function App() {
   }, [appearance]);
 
   useEffect(() => {
+    translateHistoryRef.current = translateHistory;
+  }, [translateHistory]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -214,6 +230,17 @@ export default function App() {
       JSON.stringify(appearance),
     );
   }, [appearance]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      TRANSLATE_HISTORY_STORAGE_KEY,
+      JSON.stringify(translateHistory),
+    );
+  }, [translateHistory]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -495,10 +522,51 @@ export default function App() {
 
     const resetLocalState = () => {
       translateBufferRef.current = "";
+      translateGhostRef.current = "";
       confirmationBufferRef.current = "";
       localPromptVisibleRef.current = false;
       awaitingConfirmationRef.current = false;
       pendingConfirmationDetailsRef.current = null;
+      translateHistoryIndexRef.current = null;
+      translateHistoryDraftRef.current = "";
+    };
+
+    const renderTranslatePromptLine = (prependNewline: boolean) => {
+      if (modeRef.current !== "translate") {
+        return;
+      }
+      if (awaitingConfirmationRef.current) {
+        return;
+      }
+
+      if (prependNewline) {
+        writeTerminal("\r\n", "always");
+      }
+
+      writeTerminal(
+        `\r\x1b[2K${styleSegments([
+          ...buildTranslatePromptSegments(
+            translateCwdRef.current,
+            translateHomeDirRef.current,
+            appearanceRef.current,
+          ),
+          {
+            text: translateBufferRef.current,
+            color: appearanceRef.current.stdoutColor,
+          },
+          ...(translateGhostRef.current
+            ? [
+                {
+                  text: translateGhostRef.current,
+                  color: appearanceRef.current.suggestionColor,
+                  dim: true,
+                } satisfies StyledSegment,
+              ]
+            : []),
+        ])}`,
+        "always",
+      );
+      localPromptVisibleRef.current = true;
     };
 
     const showTranslatePrompt = (prependNewline: boolean) => {
@@ -509,19 +577,73 @@ export default function App() {
         return;
       }
 
-      if (prependNewline) {
-        writeTerminal("\r\n", "always");
+      renderTranslatePromptLine(prependNewline);
+    };
+
+    const syncTranslateGhost = () => {
+      translateGhostRef.current = findGhostSuggestion(
+        translateBufferRef.current,
+        translateHistoryRef.current,
+        translateHistoryIndexRef.current,
+      );
+    };
+
+    const redrawTranslatePromptLine = () => {
+      syncTranslateGhost();
+      if (localPromptVisibleRef.current) {
+        renderTranslatePromptLine(false);
+      } else {
+        showTranslatePrompt(false);
+      }
+    };
+
+    const saveTranslateHistoryEntry = (input: string) => {
+      setTranslateHistory((current) => pushTranslateHistoryEntry(current, input));
+    };
+
+    const navigateTranslateHistory = (direction: "up" | "down") => {
+      const history = translateHistoryRef.current;
+      if (history.length === 0) {
+        return;
       }
 
-      writeStyled(
-        buildTranslatePromptSegments(
-          translateCwdRef.current,
-          translateHomeDirRef.current,
-          appearanceRef.current,
-        ),
-        "always",
-      );
-      localPromptVisibleRef.current = true;
+      if (translateHistoryIndexRef.current === null) {
+        if (direction === "down") {
+          return;
+        }
+        translateHistoryDraftRef.current = translateBufferRef.current;
+        translateHistoryIndexRef.current = history.length - 1;
+      } else if (direction === "up") {
+        translateHistoryIndexRef.current = Math.max(
+          0,
+          translateHistoryIndexRef.current - 1,
+        );
+      } else if (translateHistoryIndexRef.current >= history.length - 1) {
+        translateHistoryIndexRef.current = null;
+        translateBufferRef.current = translateHistoryDraftRef.current;
+        translateHistoryDraftRef.current = "";
+        redrawTranslatePromptLine();
+        return;
+      } else {
+        translateHistoryIndexRef.current += 1;
+      }
+
+      if (translateHistoryIndexRef.current !== null) {
+        translateBufferRef.current = history[translateHistoryIndexRef.current] ?? "";
+      }
+      redrawTranslatePromptLine();
+    };
+
+    const acceptTranslateGhostSuggestion = () => {
+      if (translateGhostRef.current.length === 0) {
+        return false;
+      }
+
+      translateBufferRef.current += translateGhostRef.current;
+      translateGhostRef.current = "";
+      translateHistoryIndexRef.current = null;
+      redrawTranslatePromptLine();
+      return true;
     };
 
     const syncPtySize = async () => {
@@ -653,6 +775,9 @@ export default function App() {
     const submitTranslateLine = async () => {
       const input = translateBufferRef.current;
       translateBufferRef.current = "";
+      translateGhostRef.current = "";
+      translateHistoryIndexRef.current = null;
+      translateHistoryDraftRef.current = "";
       localPromptVisibleRef.current = false;
       writeTerminal("\r\n", "always");
 
@@ -660,6 +785,8 @@ export default function App() {
         showTranslatePrompt(false);
         return;
       }
+
+      saveTranslateHistoryEntry(input);
 
       try {
         const response = await invoke<SubmitTerminalLineResponse>(
@@ -827,6 +954,35 @@ export default function App() {
       }
 
       switch (data) {
+        case "\u001b[A":
+          terminal.scrollToBottom();
+          navigateTranslateHistory("up");
+          return;
+        case "\u001b[B":
+          terminal.scrollToBottom();
+          navigateTranslateHistory("down");
+          return;
+        case "\t":
+          terminal.scrollToBottom();
+          acceptTranslateGhostSuggestion();
+          return;
+        case "\u001b[C":
+          if (acceptTranslateGhostSuggestion()) {
+            terminal.scrollToBottom();
+          }
+          return;
+        case "\u001b":
+          if (
+            translateBufferRef.current.length > 0 ||
+            translateGhostRef.current.length > 0
+          ) {
+            translateBufferRef.current = "";
+            translateGhostRef.current = "";
+            translateHistoryIndexRef.current = null;
+            translateHistoryDraftRef.current = "";
+            redrawTranslatePromptLine();
+          }
+          return;
         case "\r":
           void submitTranslateLine();
           return;
@@ -834,12 +990,16 @@ export default function App() {
           if (translateBufferRef.current.length > 0) {
             terminal.scrollToBottom();
             translateBufferRef.current = translateBufferRef.current.slice(0, -1);
-            writeTerminal("\b \b", "always");
+            translateHistoryIndexRef.current = null;
+            redrawTranslatePromptLine();
           }
           return;
         case "\u0003":
           if (translateBufferRef.current.length > 0 || localPromptVisibleRef.current) {
             translateBufferRef.current = "";
+            translateGhostRef.current = "";
+            translateHistoryIndexRef.current = null;
+            translateHistoryDraftRef.current = "";
             localPromptVisibleRef.current = false;
             writeStyledLine(
               [{ text: "^C", color: appearanceRef.current.warningColor, bold: true }],
@@ -861,7 +1021,8 @@ export default function App() {
           }
 
           translateBufferRef.current += data;
-          writeTerminal(data, "always");
+          translateHistoryIndexRef.current = null;
+          redrawTranslatePromptLine();
       }
     };
 
@@ -997,10 +1158,13 @@ export default function App() {
     await cancelConfirmationFromToolbar();
 
     translateBufferRef.current = "";
+    translateGhostRef.current = "";
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
     awaitingConfirmationRef.current = false;
     pendingConfirmationDetailsRef.current = null;
+    translateHistoryIndexRef.current = null;
+    translateHistoryDraftRef.current = "";
 
     const nextMode: TerminalMode =
       modeRef.current === "native" ? "translate" : "native";
@@ -1046,11 +1210,14 @@ export default function App() {
     await cancelConfirmationFromToolbar();
 
     translateBufferRef.current = "";
+    translateGhostRef.current = "";
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
     awaitingConfirmationRef.current = false;
     hiddenPtyOutputRef.current = "";
     pendingConfirmationDetailsRef.current = null;
+    translateHistoryIndexRef.current = null;
+    translateHistoryDraftRef.current = "";
 
     fitAddon.fit();
     terminal.reset();
@@ -1104,10 +1271,13 @@ export default function App() {
 
     if (modeRef.current === "translate") {
       translateBufferRef.current = "";
+      translateGhostRef.current = "";
       confirmationBufferRef.current = "";
       awaitingConfirmationRef.current = false;
       localPromptVisibleRef.current = false;
       pendingConfirmationDetailsRef.current = null;
+      translateHistoryIndexRef.current = null;
+      translateHistoryDraftRef.current = "";
       writeTerminalAndScroll(
         terminal,
         styleSegments(
@@ -1136,6 +1306,9 @@ export default function App() {
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
     pendingConfirmationDetailsRef.current = null;
+    translateGhostRef.current = "";
+    translateHistoryIndexRef.current = null;
+    translateHistoryDraftRef.current = "";
 
     try {
       await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
@@ -1518,6 +1691,11 @@ export default function App() {
                   value={appearance.infoColor}
                   onChange={(value) => updateAppearance("infoColor", value)}
                 />
+                <ColorSetting
+                  label="Suggestion"
+                  value={appearance.suggestionColor}
+                  onChange={(value) => updateAppearance("suggestionColor", value)}
+                />
               </div>
             </section>
 
@@ -1624,6 +1802,31 @@ function loadAppearanceSettings(): AppearanceSettings {
     };
   } catch {
     return DEFAULT_APPEARANCE_SETTINGS;
+  }
+}
+
+function loadTranslateHistory(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const saved = window.localStorage.getItem(TRANSLATE_HISTORY_STORAGE_KEY);
+  if (!saved) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+      .slice(-TRANSLATE_HISTORY_LIMIT);
+  } catch {
+    return [];
   }
 }
 
@@ -1844,6 +2047,9 @@ function styleSegments(segments: StyledSegment[]): string {
   return segments
     .map((segment) => {
       const codes: string[] = [];
+      if (segment.dim) {
+        codes.push("2");
+      }
       if (segment.bold) {
         codes.push("1");
       }
@@ -1860,6 +2066,49 @@ function styleSegments(segments: StyledSegment[]): string {
       return `\u001b[${codes.join(";")}m${segment.text}\u001b[0m`;
     })
     .join("");
+}
+
+function pushTranslateHistoryEntry(current: string[], input: string): string[] {
+  const normalized = input.trim();
+  const lastEntry = current.length > 0 ? current[current.length - 1] : null;
+  if (
+    normalized.length === 0 ||
+    containsSensitiveHistoryData(normalized) ||
+    lastEntry === normalized
+  ) {
+    return current;
+  }
+
+  return [...current, normalized].slice(-TRANSLATE_HISTORY_LIMIT);
+}
+
+function containsSensitiveHistoryData(input: string): boolean {
+  return /(password=|token=|api_key=|secret=|--password\b|--token\b|--api-key\b)/i.test(
+    input,
+  );
+}
+
+function findGhostSuggestion(
+  input: string,
+  history: string[],
+  historyIndex: number | null,
+): string {
+  if (historyIndex !== null || input.length === 0) {
+    return "";
+  }
+
+  const inputLower = input.toLowerCase();
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (
+      entry.length > input.length &&
+      entry.toLowerCase().startsWith(inputLower)
+    ) {
+      return entry.slice(input.length);
+    }
+  }
+
+  return "";
 }
 
 function hexToRgb(color: string): [number, number, number] {
