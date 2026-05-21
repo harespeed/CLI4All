@@ -1,0 +1,82 @@
+[
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "cat",
+    "notes": "/usr/bin/cat",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "clear",
+    "notes": "/usr/bin/clear",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "curl",
+    "notes": "/usr/bin/curl",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "find",
+    "notes": "/usr/bin/find",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "grep",
+    "notes": "/usr/bin/grep",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ip",
+    "notes": "/usr/sbin/ip",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ls",
+    "notes": "/usr/bin/ls",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ps",
+    "notes": "/usr/bin/ps",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ss",
+    "notes": "/usr/bin/ss",
+    "shell": "bash",
+    "source_platform": "linux"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "which",
+    "notes": "/usr/bin/which",
+    "shell": "bash",
+    "source_platform": "linux"
+  }
+]

@@ -1,0 +1,97 @@
+[
+  {
+    "detected_from": "zsh builtins",
+    "kind": "builtin",
+    "name": "alias",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "cat",
+    "notes": "/bin/cat",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "clear",
+    "notes": "/usr/bin/clear",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "curl",
+    "notes": "/usr/bin/curl",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "find",
+    "notes": "/usr/bin/find",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "grep",
+    "notes": "/usr/bin/grep",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ifconfig",
+    "notes": "/sbin/ifconfig",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ls",
+    "notes": "/bin/ls",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "netstat",
+    "notes": "/usr/sbin/netstat",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "open",
+    "notes": "/usr/bin/open",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "ps",
+    "notes": "/bin/ps",
+    "shell": "zsh",
+    "source_platform": "macos"
+  },
+  {
+    "detected_from": "PATH",
+    "kind": "external",
+    "name": "which",
+    "notes": "/usr/bin/which",
+    "shell": "zsh",
+    "source_platform": "macos"
+  }
+]

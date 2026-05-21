@@ -36,6 +36,7 @@ struct PendingConfirmation {
 struct TranslateState {
     initial_cwd: PathBuf,
     cwd: PathBuf,
+    home_dir: Option<PathBuf>,
 }
 
 struct RuntimeState {
@@ -50,6 +51,8 @@ struct RuntimeState {
 struct SessionStartResponse {
     session_id: u64,
     current_os: String,
+    current_dir: String,
+    home_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,6 +131,12 @@ fn start_pty_session(
     Ok(SessionStartResponse {
         session_id,
         current_os: current_platform.display_name().to_string(),
+        current_dir: display_path(&runtime.translate.cwd),
+        home_dir: runtime
+            .translate
+            .home_dir
+            .as_deref()
+            .map(display_path),
     })
 }
 
@@ -328,7 +337,8 @@ pub fn run() {
                 .map_err(|error| format!("failed to load the command store: {error:#}"))?;
             let risk_catalog =
                 load_risk_catalog().map_err(|error| format!("failed to load risk rules: {error:#}"))?;
-            let initial_cwd = initial_translate_cwd();
+            let home_dir = home_dir();
+            let initial_cwd = initial_translate_cwd(home_dir.clone());
 
             app.manage(DesktopState {
                 current_platform,
@@ -341,6 +351,7 @@ pub fn run() {
                     translate: TranslateState {
                         initial_cwd: initial_cwd.clone(),
                         cwd: initial_cwd,
+                        home_dir,
                     },
                 }),
             });
@@ -526,22 +537,34 @@ fn execute_windows_command(
     }
 }
 
-fn initial_translate_cwd() -> PathBuf {
+fn initial_translate_cwd(home_dir: Option<PathBuf>) -> PathBuf {
     env::current_dir()
         .ok()
-        .or_else(home_dir)
+        .or(home_dir)
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 fn resolve_cd_target(target: &str, current_dir: &Path, initial_dir: &Path) -> Result<PathBuf, String> {
+    resolve_cd_target_with_home(target, current_dir, initial_dir, home_dir().as_deref())
+}
+
+fn resolve_cd_target_with_home(
+    target: &str,
+    current_dir: &Path,
+    initial_dir: &Path,
+    home_dir_override: Option<&Path>,
+) -> Result<PathBuf, String> {
     let target = strip_wrapping_quotes(target.trim());
     let candidate = if target.is_empty() || target == "~" {
-        home_dir().unwrap_or_else(|| initial_dir.to_path_buf())
+        home_dir_override
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| initial_dir.to_path_buf())
     } else if let Some(home_relative) = target
         .strip_prefix("~/")
         .or_else(|| target.strip_prefix("~\\"))
     {
-        home_dir()
+        home_dir_override
+            .map(Path::to_path_buf)
             .unwrap_or_else(|| initial_dir.to_path_buf())
             .join(home_relative)
     } else {
@@ -622,4 +645,91 @@ struct TranslateExecutionResult {
     stdout: String,
     stderr: String,
     exit_status: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{native_pwd_command, parse_cd_command, resolve_cd_target_with_home};
+    use cli4all::platform::Platform;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time should move forward")
+                .as_nanos();
+            let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "cli4all-desktop-{label}-{}-{unique}-{counter}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("temp dir should be created");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn parse_cd_command_supports_parent_navigation() {
+        assert_eq!(parse_cd_command("cd .."), Some(".."));
+    }
+
+    #[test]
+    fn resolve_cd_target_supports_home_directory() {
+        let temp = TempDir::new("translate-home");
+        let home = temp.path().join("home");
+        fs::create_dir_all(&home).expect("home dir should exist");
+
+        let resolved = resolve_cd_target_with_home("~", temp.path(), temp.path(), Some(&home))
+            .expect("home resolution should work");
+
+        assert_eq!(
+            resolved,
+            home.canonicalize().expect("home dir should canonicalize")
+        );
+    }
+
+    #[test]
+    fn resolve_cd_target_supports_parent_directory() {
+        let temp = TempDir::new("translate-parent");
+        let parent = temp.path().join("root");
+        let child = parent.join("child");
+        fs::create_dir_all(&child).expect("child dir should exist");
+
+        let resolved =
+            resolve_cd_target_with_home("..", &child, &parent, Some(&parent)).expect("parent resolution should work");
+
+        assert_eq!(
+            resolved,
+            parent
+                .canonicalize()
+                .expect("parent dir should canonicalize")
+        );
+    }
+
+    #[test]
+    fn native_pwd_command_matches_platform() {
+        assert_eq!(native_pwd_command(Platform::Macos), "pwd");
+        assert_eq!(native_pwd_command(Platform::Ubuntu), "pwd");
+        assert_eq!(native_pwd_command(Platform::Windows), "Get-Location");
+    }
 }

@@ -1,43 +1,50 @@
 commands:
-  - intent: show_ip_config
-    description: Show local IP address and network interface configuration.
-    category: networking
-    risk_level: low
-    commands:
-      windows_cmd:
-        - ipconfig
-        - ipconfig /all
-      powershell:
-        - Get-NetIPConfiguration
-        - Get-NetIPAddress
-      macos:
-        - ifconfig
-        - ipconfig getifaddr en0
-      ubuntu:
-        - ip addr
-        - hostname -I
-    notes:
-      - Ubuntu commonly uses iproute2 tools instead of Windows-style network commands.
-
   - intent: list_files
     description: List files and directories in the current location.
     category: filesystem
     risk_level: low
     commands:
       windows_cmd:
+        - dir <path>
         - dir
       powershell:
-        - Get-ChildItem -Force
+        - Get-ChildItem <path>
         - Get-ChildItem
+        - ls <path>
         - ls
+        - dir <path>
+        - dir
       macos:
+        - ls <path>
         - ls
+      ubuntu:
+        - ls <path>
+        - ls
+    notes:
+      - This intent covers standard non-hidden directory listings.
+      - Placeholder-preserving target commands are ordered first so CLI4ALL keeps path arguments when they are present.
+
+  - intent: list_all_files
+    description: List files including hidden entries and detailed metadata.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - dir /a <path>
+        - dir /a
+      powershell:
+        - Get-ChildItem -Force <path>
+        - Get-ChildItem -Force
+        - ls -la <path>
+        - ls -la
+      macos:
+        - ls -la <path>
         - ls -la
       ubuntu:
-        - ls
+        - ls -la <path>
         - ls -la
     notes:
-      - ls -la includes hidden files and detailed metadata.
+      - PowerShell Get-ChildItem -Force is the closest Windows equivalent for showing hidden items.
 
   - intent: clear_screen
     description: Clear the terminal screen.
@@ -49,6 +56,7 @@ commands:
       powershell:
         - Clear-Host
         - cls
+        - clear
       macos:
         - clear
       ubuntu:
@@ -73,6 +81,23 @@ commands:
     notes:
       - Translate Mode keeps its own working directory and reports it explicitly.
 
+  - intent: change_directory
+    description: Change the current working directory.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - cd <path>
+      powershell:
+        - Set-Location <path>
+        - cd <path>
+      macos:
+        - cd <path>
+      ubuntu:
+        - cd <path>
+    notes:
+      - The desktop Translate Mode intercepts cd and updates its own cwd state before command execution.
+
   - intent: print_current_user
     description: Print the current user account name.
     category: shell
@@ -89,21 +114,60 @@ commands:
     notes:
       - This is informational and does not modify system state.
 
-  - intent: open_current_directory
-    description: Open the current directory in the platform file browser.
-    category: shell
+  - intent: show_ip_config
+    description: Show local IP address and network interface configuration.
+    category: networking
     risk_level: low
     commands:
       windows_cmd:
-        - start .
+        - ipconfig
       powershell:
-        - Invoke-Item .
+        - ipconfig
+        - Get-NetIPConfiguration
+        - Get-NetIPAddress
       macos:
-        - open .
+        - ifconfig
       ubuntu:
-        - xdg-open .
+        - ip addr
     notes:
-      - This delegates to the platform file browser and may open a GUI application.
+      - CLI4ALL prefers ifconfig on macOS and ip addr on Linux for the translated target command.
+
+  - intent: show_dns_config
+    description: Show DNS resolver configuration and related network details.
+    category: networking
+    risk_level: low
+    commands:
+      windows_cmd:
+        - ipconfig /all
+      powershell:
+        - ipconfig /all
+        - Get-DnsClientServerAddress
+      macos:
+        - scutil --dns
+      ubuntu:
+        - resolvectl status
+        - cat /etc/resolv.conf
+    notes:
+      - The exact DNS detail level differs by platform, so CLI4ALL maps to the closest native inspection command.
+
+  - intent: ping_host
+    description: Ping a host to verify basic network connectivity.
+    category: networking
+    risk_level: low
+    commands:
+      windows_cmd:
+        - ping <host>
+      powershell:
+        - Test-Connection <host>
+        - ping <host>
+      macos:
+        - ping -c 4 <host>
+        - ping <host>
+      ubuntu:
+        - ping -c 4 <host>
+        - ping <host>
+    notes:
+      - CLI4ALL prefers a bounded four-packet ping on macOS and Linux so Translate Mode does not run indefinitely.
 
   - intent: show_processes
     description: Show the currently running processes.
@@ -127,6 +191,7 @@ commands:
     risk_level: medium
     commands:
       windows_cmd:
+        - taskkill /PID <pid> /F
         - taskkill /PID <pid>
       powershell:
         - Stop-Process -Id <pid>
@@ -136,6 +201,199 @@ commands:
         - kill <pid>
     notes:
       - Killing the wrong process can interrupt services or terminate unsaved work.
+
+  - intent: make_directory
+    description: Create a directory.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - mkdir <dir>
+        - md <dir>
+      powershell:
+        - New-Item -ItemType Directory <dir>
+        - mkdir <dir>
+      macos:
+        - mkdir <dir>
+      ubuntu:
+        - mkdir <dir>
+    notes:
+      - Directory creation is safe for automatic Translate Mode execution.
+
+  - intent: copy_file
+    description: Copy a file from one path to another.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - copy <src> <dst>
+      powershell:
+        - Copy-Item <src> <dst>
+        - cp <src> <dst>
+      macos:
+        - cp <src> <dst>
+      ubuntu:
+        - cp <src> <dst>
+    notes:
+      - Copy operations are treated as low-risk even though an existing destination file may be overwritten.
+
+  - intent: move_or_rename
+    description: Move or rename a file or directory.
+    category: filesystem
+    risk_level: medium
+    commands:
+      windows_cmd:
+        - move <src> <dst>
+        - ren <src> <dst>
+      powershell:
+        - Move-Item <src> <dst>
+        - Rename-Item <src> <dst>
+        - mv <src> <dst>
+      macos:
+        - mv <src> <dst>
+      ubuntu:
+        - mv <src> <dst>
+    notes:
+      - Move and rename operations can replace or relocate important files, so Translate Mode asks for confirmation.
+
+  - intent: show_file_content
+    description: Print the contents of a text file.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - type <file>
+      powershell:
+        - Get-Content <file>
+        - cat <file>
+      macos:
+        - cat <file>
+      ubuntu:
+        - cat <file>
+    notes:
+      - This intent is intended for small text inspection rather than paging through large files.
+
+  - intent: create_empty_file
+    description: Create an empty file if it does not already exist.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - type nul > <file>
+        - echo. > <file>
+      powershell:
+        - New-Item <file> -ItemType File
+      macos:
+        - touch <file>
+      ubuntu:
+        - touch <file>
+    notes:
+      - The Windows examples rely on shell redirection; the translated target stays a simple native file-creation command.
+
+  - intent: remove_file
+    description: Remove a file from the filesystem.
+    category: filesystem
+    risk_level: medium
+    commands:
+      windows_cmd:
+        - del <file>
+        - erase <file>
+      powershell:
+        - Remove-Item <file>
+        - del <file>
+      macos:
+        - rm <file>
+      ubuntu:
+        - rm <file>
+    notes:
+      - Translate Mode requires confirmation before deleting files.
+
+  - intent: remove_directory
+    description: Remove a directory recursively.
+    category: filesystem
+    risk_level: high
+    commands:
+      windows_cmd:
+        - rmdir /S <dir>
+        - rd /S <dir>
+      powershell:
+        - Remove-Item -Recurse <dir>
+        - rmdir <dir>
+      macos:
+        - rm -r <dir>
+      ubuntu:
+        - rm -r <dir>
+    notes:
+      - Recursive directory removal is high-risk and still yields a destructive block when it targets a root path.
+
+  - intent: open_current_directory
+    description: Open the current directory in the platform file browser.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - start .
+      powershell:
+        - Invoke-Item .
+        - ii .
+      macos:
+        - open .
+      ubuntu:
+        - xdg-open .
+    notes:
+      - This delegates to the platform file browser and may open a GUI application.
+
+  - intent: open_file_or_url
+    description: Open a file path or URL using the native desktop handler.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - start <path_or_url>
+      powershell:
+        - Start-Process <path_or_url>
+        - ii <path_or_url>
+      macos:
+        - open <path_or_url>
+      ubuntu:
+        - xdg-open <path_or_url>
+    notes:
+      - CLI4ALL preserves a single placeholder token for simple path or URL arguments.
+
+  - intent: copy_to_clipboard
+    description: Copy a simple value to the system clipboard.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - clip <text>
+      powershell:
+        - Set-Clipboard <text>
+        - clip <text>
+      macos:
+        - printf %s <text> | pbcopy
+      ubuntu:
+        - printf %s <text> | xclip -selection clipboard
+        - printf %s <text> | xsel -ib
+    notes:
+      - Current placeholder matching preserves only a single non-whitespace token for clipboard text.
+
+  - intent: paste_from_clipboard
+    description: Print the current clipboard contents.
+    category: shell
+    risk_level: low
+    commands:
+      windows_cmd:
+        - powershell Get-Clipboard
+      powershell:
+        - Get-Clipboard
+      macos:
+        - pbpaste
+      ubuntu:
+        - xclip -selection clipboard -o
+        - xsel -ob
+    notes:
+      - Clipboard commands depend on platform tooling already being installed.
 
   - intent: find_executable
     description: Locate the executable that will run for a given command name.
@@ -153,8 +411,57 @@ commands:
     notes:
       - Use this to confirm which binary is first on PATH.
 
+  - intent: search_text
+    description: Search for a text pattern inside a file.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - findstr <pattern> <file>
+      powershell:
+        - Select-String <pattern> <file>
+      macos:
+        - grep <pattern> <file>
+      ubuntu:
+        - grep <pattern> <file>
+    notes:
+      - CLI4ALL treats basic text search as a read-only inspection command.
+
+  - intent: find_file
+    description: Find files by name from the current directory tree.
+    category: filesystem
+    risk_level: low
+    commands:
+      windows_cmd:
+        - dir /s <name>
+      powershell:
+        - Get-ChildItem -Recurse -Filter <name>
+      macos:
+        - find . -name <name>
+      ubuntu:
+        - find . -name <name>
+    notes:
+      - This intent is limited to the reviewed current-directory search form and does not attempt broad path rewrites.
+
+  - intent: download_url
+    description: Download a URL to stdout or the default client output stream.
+    category: networking
+    risk_level: low
+    commands:
+      windows_cmd:
+        - curl <url>
+      powershell:
+        - Invoke-WebRequest <url>
+        - curl <url>
+      macos:
+        - curl <url>
+      ubuntu:
+        - curl <url>
+    notes:
+      - Simple URL fetches are low-risk, but piping network output into a shell is governed separately by safety rules.
+
   - intent: show_ports
-    description: Show listening ports and network socket usage.
+    description: Show network connections, listening ports, and socket usage.
     category: networking
     risk_level: low
     commands:
@@ -163,46 +470,129 @@ commands:
       powershell:
         - Get-NetTCPConnection
       macos:
+        - netstat -an
         - lsof -i
       ubuntu:
-        - ss -tulnp
+        - ss -tunlp
+        - netstat -an
         - lsof -i
     notes:
-      - ss is the standard Ubuntu tool for socket inspection.
+      - The first target command is chosen to preserve a connection-table style output when possible.
 
-  - intent: copy_file
-    description: Copy a file from one path to another.
-    category: filesystem
+  - intent: show_route_table
+    description: Show the current network route table.
+    category: networking
+    risk_level: low
+    commands:
+      windows_cmd:
+        - route print
+      powershell:
+        - Get-NetRoute
+      macos:
+        - netstat -rn
+      ubuntu:
+        - ip route
+    notes:
+      - Route inspection is read-only but platform output formats differ.
+
+  - intent: edit_text_file
+    description: Open a text file in a default editor.
+    category: shell
     risk_level: medium
     commands:
       windows_cmd:
-        - copy <src> <dst>
+        - notepad <file>
       powershell:
-        - Copy-Item <src> <dst>
+        - notepad <file>
       macos:
-        - cp <src> <dst>
+        - open -e <file>
       ubuntu:
-        - cp <src> <dst>
+        - nano <file>
+        - xdg-open <file>
     notes:
-      - Existing destination files may be overwritten depending on shell behavior and flags.
+      - Editor launch commands open an interactive editor or GUI and therefore require confirmation in Translate Mode.
 
-  - intent: remove_file
-    description: Remove a file from the filesystem.
-    category: filesystem
-    risk_level: high
+  - intent: system_info
+    description: Show broad operating system and host information.
+    category: system
+    risk_level: low
     commands:
       windows_cmd:
-        - del <file>
+        - systeminfo
       powershell:
-        - Remove-Item <file>
+        - Get-ComputerInfo
       macos:
-        - rm <file>
+        - sw_vers && uname -a
       ubuntu:
-        - rm <file>
+        - uname -a && lsb_release -a
     notes:
-      - File removal is typically irreversible without backups or snapshots.
+      - The information density differs by platform, so CLI4ALL chooses the closest native summary command.
 
-  - intent: install_package
+  - intent: disk_usage
+    description: Show mounted filesystem capacity and usage.
+    category: system
+    risk_level: low
+    commands:
+      windows_cmd:
+        - wmic logicaldisk get size,freespace,caption
+      powershell:
+        - Get-PSDrive -PSProvider FileSystem
+      macos:
+        - df -h
+      ubuntu:
+        - df -h
+    notes:
+      - PowerShell reports filesystem drives rather than the POSIX df table.
+
+  - intent: current_date_time
+    description: Print the current date and time.
+    category: system
+    risk_level: low
+    commands:
+      windows_cmd:
+        - date /t && time /t
+      powershell:
+        - Get-Date
+      macos:
+        - date
+      ubuntu:
+        - date
+    notes:
+      - Windows CMD often splits date and time into two commands, while Unix platforms use a single date invocation.
+
+  - intent: environment_variables
+    description: Print environment variables for the current shell session.
+    category: system
+    risk_level: low
+    commands:
+      windows_cmd:
+        - set
+      powershell:
+        - Get-ChildItem Env:
+      macos:
+        - env
+      ubuntu:
+        - env
+    notes:
+      - This is read-only inspection of the current environment.
+
+  - intent: package_manager_search
+    description: Search the platform package manager for a package.
+    category: packages
+    risk_level: low
+    commands:
+      windows_cmd:
+        - winget search <package>
+      powershell:
+        - winget search <package>
+      macos:
+        - brew search <package>
+      ubuntu:
+        - apt search <package>
+    notes:
+      - Package search is a read-only operation and is safe for automatic execution.
+
+  - intent: package_manager_install
     description: Install a software package using the platform package manager.
     category: packages
     risk_level: medium
@@ -214,6 +604,24 @@ commands:
       macos:
         - brew install <package>
       ubuntu:
-        - sudo apt update && sudo apt install <package>
+        - sudo apt install <package>
     notes:
-      - Ubuntu commonly separates repository metadata refresh from package installation.
+      - Package installation changes system state and requires confirmation in Translate Mode.
+
+  - intent: package_manager_update
+    description: Refresh package metadata or upgrade available packages.
+    category: packages
+    risk_level: medium
+    commands:
+      windows_cmd:
+        - winget upgrade
+        - winget upgrade --all
+      powershell:
+        - winget upgrade
+        - winget upgrade --all
+      macos:
+        - brew update
+      ubuntu:
+        - sudo apt update
+    notes:
+      - Package manager refresh and upgrade commands can prompt for privileges or change package state.

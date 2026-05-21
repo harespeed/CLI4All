@@ -1,0 +1,110 @@
+[
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Clear-Host",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Copy-Item",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Utility",
+    "name": "Get-Command",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Get-Content",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Get-ChildItem",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "NetTCPIP",
+    "name": "Get-NetTCPConnection",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "NetTCPIP",
+    "name": "Get-NetRoute",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Utility",
+    "name": "Invoke-WebRequest",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Move-Item",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Remove-Item",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Utility",
+    "name": "Select-String",
+    "shell": "powershell",
+    "source_platform": "windows"
+  },
+  {
+    "command_type": "Cmdlet",
+    "detected_from": "Get-Command *",
+    "kind": "cmdlet",
+    "module_name": "Microsoft.PowerShell.Management",
+    "name": "Stop-Process",
+    "shell": "powershell",
+    "source_platform": "windows"
+  }
+]

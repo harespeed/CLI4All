@@ -2,15 +2,20 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import type { CSSProperties, ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 type TerminalMode = "native" | "translate";
+type DetailMode = "clean" | "verbose";
+type BackgroundMode = "color" | "image";
 type TerminalAction = "execute" | "confirm" | "block" | "unknown_no_execute";
 type ConfirmationResolutionAction = "execute" | "cancelled";
 
 type SessionStartResponse = {
   sessionId: number;
   currentOs: string;
+  currentDir: string;
+  homeDir: string | null;
 };
 
 type SubmitTerminalLineResponse = {
@@ -51,13 +56,113 @@ type PtyExitEvent = {
   sessionId: number;
 };
 
+type PendingConfirmationDetails = Pick<
+  SubmitTerminalLineResponse,
+  | "originalCommand"
+  | "detectedSource"
+  | "currentOs"
+  | "translatedCommand"
+  | "riskLevel"
+  | "matchedIntent"
+>;
+
+type AppearanceSettings = {
+  backgroundMode: BackgroundMode;
+  backgroundColor: string;
+  backgroundImage: string | null;
+  backgroundOverlayOpacity: number;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  promptColor: string;
+  modeTagColor: string;
+  translationHintColor: string;
+  successColor: string;
+  warningColor: string;
+  errorColor: string;
+  stdoutColor: string;
+  stderrColor: string;
+  noticeColor: string;
+  infoColor: string;
+  terminalForeground: string;
+  terminalBackground: string;
+  cursorColor: string;
+  selectionColor: string;
+};
+
+type StyledSegment = {
+  text: string;
+  color?: string;
+  bold?: boolean;
+  italic?: boolean;
+};
+
+type TerminalThemeLike = {
+  background: string;
+  foreground: string;
+  cursor: string;
+  selectionBackground: string;
+  black: string;
+  blue: string;
+  brightBlack: string;
+  brightBlue: string;
+  brightCyan: string;
+  brightGreen: string;
+  brightMagenta: string;
+  brightRed: string;
+  brightWhite: string;
+  brightYellow: string;
+  cyan: string;
+  green: string;
+  magenta: string;
+  red: string;
+  white: string;
+  yellow: string;
+};
+
 const MODE_RULE = "------------------------------------------------";
 const SECTION_RULE = "-----------------------------------------------------";
-const TRANSLATE_PROMPT = "cli4all-translate> ";
-const CONFIRM_PROMPT = "Execute this command? [y/N]";
 const SCROLLBACK_LINES = 20000;
 const BOTTOM_SCROLL_THRESHOLD = 2;
 const BACKGROUND_PTY_BUFFER_LIMIT = 200_000;
+const BUILTIN_SOURCE = "CLI4ALL Built-in";
+const APPEARANCE_STORAGE_KEY = "cli4all.desktop.appearance";
+const FONT_FAMILIES = [
+  "Menlo",
+  "Monaco",
+  "SF Mono",
+  "Consolas",
+  "Fira Code",
+  "JetBrains Mono",
+  "monospace",
+] as const;
+const FONT_WEIGHTS = [400, 500, 600, 700] as const;
+
+const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  backgroundMode: "color",
+  backgroundColor: "#07111c",
+  backgroundImage: null,
+  backgroundOverlayOpacity: 0.54,
+  fontFamily: "Menlo",
+  fontSize: 14,
+  fontWeight: 500,
+  italic: false,
+  promptColor: "#ffe27a",
+  modeTagColor: "#7ae7d0",
+  translationHintColor: "#9dd1ff",
+  successColor: "#c0e77d",
+  warningColor: "#ffd479",
+  errorColor: "#ff8f7a",
+  stdoutColor: "#dce7f3",
+  stderrColor: "#ffb7ab",
+  noticeColor: "#98c8ff",
+  infoColor: "#8fb7d6",
+  terminalForeground: "#dce7f3",
+  terminalBackground: "#07111c",
+  cursorColor: "#f8d66d",
+  selectionColor: "#5d8fc0",
+};
 
 export default function App() {
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
@@ -65,19 +170,76 @@ export default function App() {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<number | null>(null);
   const modeRef = useRef<TerminalMode>("native");
+  const detailModeRef = useRef<DetailMode>("clean");
+  const appearanceRef = useRef<AppearanceSettings>(DEFAULT_APPEARANCE_SETTINGS);
   const translateBufferRef = useRef("");
   const confirmationBufferRef = useRef("");
   const localPromptVisibleRef = useRef(false);
   const awaitingConfirmationRef = useRef(false);
   const hiddenPtyOutputRef = useRef("");
   const destroyedRef = useRef(false);
+  const translateCwdRef = useRef("");
+  const translateHomeDirRef = useRef<string | null>(null);
+  const pendingConfirmationDetailsRef =
+    useRef<PendingConfirmationDetails | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [mode, setMode] = useState<TerminalMode>("native");
+  const [detailMode, setDetailMode] = useState<DetailMode>("clean");
   const [currentOs, setCurrentOs] = useState("Starting...");
+  const [appearance, setAppearance] = useState<AppearanceSettings>(
+    loadAppearanceSettings,
+  );
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  useEffect(() => {
+    detailModeRef.current = detailMode;
+  }, [detailMode]);
+
+  useEffect(() => {
+    appearanceRef.current = appearance;
+  }, [appearance]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      APPEARANCE_STORAGE_KEY,
+      JSON.stringify(appearance),
+    );
+  }, [appearance]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    terminal.options = {
+      ...terminal.options,
+      fontFamily: appearance.fontFamily,
+      fontSize: appearance.fontSize,
+      fontWeight: appearance.fontWeight,
+      theme: buildXtermTheme(appearance),
+    };
+
+    const fitAddon = fitAddonRef.current;
+    if (fitAddon) {
+      fitAddon.fit();
+      if (sessionIdRef.current !== null) {
+        void invoke("resize_pty", {
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }).catch(() => undefined);
+      }
+    }
+  }, [appearance]);
 
   useEffect(() => {
     const container = terminalContainerRef.current;
@@ -91,30 +253,10 @@ export default function App() {
       cursorBlink: true,
       scrollback: SCROLLBACK_LINES,
       convertEol: true,
-      fontFamily: '"SFMono-Regular", "IBM Plex Mono", "Menlo", monospace',
-      fontSize: 14,
-      lineHeight: 1.35,
-      theme: {
-        background: "#07111c",
-        foreground: "#dce7f3",
-        cursor: "#f8d66d",
-        black: "#07111c",
-        blue: "#62b1ff",
-        brightBlack: "#486174",
-        brightBlue: "#9dd1ff",
-        brightCyan: "#97f1e3",
-        brightGreen: "#c0e77d",
-        brightMagenta: "#f3a4b8",
-        brightRed: "#ff8f7a",
-        brightWhite: "#f5fbff",
-        brightYellow: "#ffd479",
-        cyan: "#6cd6c3",
-        green: "#91d45a",
-        magenta: "#df87a6",
-        red: "#ff6b57",
-        white: "#dce7f3",
-        yellow: "#f3c65f",
-      },
+      fontFamily: appearanceRef.current.fontFamily,
+      fontSize: appearanceRef.current.fontSize,
+      fontWeight: appearanceRef.current.fontWeight,
+      theme: buildXtermTheme(appearanceRef.current),
     });
 
     const fitAddon = new FitAddon();
@@ -153,61 +295,202 @@ export default function App() {
       writeTerminal(`${line}\r\n`, scrollBehavior);
     };
 
+    const writeStyled = (
+      segments: StyledSegment[],
+      scrollBehavior: "always" | "if-bottom" | "never" = "always",
+    ) => {
+      writeTerminal(styleSegments(segments), scrollBehavior);
+    };
+
+    const writeStyledLine = (
+      segments: StyledSegment[],
+      scrollBehavior: "always" | "if-bottom" | "never" = "always",
+    ) => {
+      writeTerminal(`${styleSegments(segments)}\r\n`, scrollBehavior);
+    };
+
+    const writeColoredBlock = (
+      text: string,
+      color: string,
+      scrollBehavior: "always" | "if-bottom" | "never" = "always",
+    ) => {
+      const normalized = ensureTrailingNewline(text).replace(/\n/g, "\r\n");
+      writeTerminal(
+        `${styleSegments([{ text: normalized, color }])}`,
+        scrollBehavior,
+      );
+    };
+
     const writeStream = (data: string) => {
       writeTerminal(data, "if-bottom");
     };
 
-    const printLines = (lines: string[]) => {
-      lines.forEach((line) => writeTerminalLine(line, "always"));
+    const printVerboseSectionHeader = (title: string, color: string) => {
+      writeStyledLine(
+        [
+          {
+            text: `---------------- ${title} ----------------`,
+            color,
+            bold: true,
+          },
+        ],
+        "always",
+      );
     };
 
-    const printNotice = (title: string, lines: string[]) => {
-      printLines([
-        `---------------- ${title} ----------------`,
-        ...lines,
-        SECTION_RULE,
-      ]);
+    const printVerboseSectionFooter = (rule: string, color: string) => {
+      writeStyledLine([{ text: rule, color }], "always");
     };
 
-    const printTranslation = (response: SubmitTerminalLineResponse) => {
-      printLines([
-        "---------------- CLI4ALL Translation ----------------",
-        `Original command:   ${response.originalCommand}`,
-        `Detected source:    ${response.detectedSource}`,
-        `Current OS:         ${response.currentOs}`,
-        `Matched intent:     ${response.matchedIntent ?? "unknown"}`,
-        `Translated command: ${response.translatedCommand ?? "unavailable"}`,
-        `Risk level:         ${response.riskLevel}`,
-        SECTION_RULE,
-      ]);
+    const printVerboseNotice = (title: string, lines: string[]) => {
+      const settings = appearanceRef.current;
+      printVerboseSectionHeader(title, settings.infoColor);
+      lines.forEach((line) => {
+        writeStyledLine([{ text: line, color: settings.noticeColor }], "always");
+      });
+      printVerboseSectionFooter(SECTION_RULE, settings.infoColor);
     };
 
-    const printExecutionSections = (
+    const printCompactNotice = (message: string, color: string) => {
+      writeStyledLine([{ text: message, color, bold: true }], "always");
+    };
+
+    const printNotice = (title: string, lines: string[], compactMessage: string) => {
+      const settings = appearanceRef.current;
+      if (detailModeRef.current === "verbose") {
+        printVerboseNotice(title, lines);
+      } else {
+        const color =
+          title === "CLI4ALL Safety"
+            ? settings.errorColor
+            : settings.noticeColor;
+        printCompactNotice(compactMessage, color);
+      }
+    };
+
+    const printTranslationVerbose = (response: SubmitTerminalLineResponse) => {
+      const settings = appearanceRef.current;
+      printVerboseSectionHeader("CLI4ALL Translation", settings.translationHintColor);
+      printTranslationDetailLine("Original command", response.originalCommand);
+      printTranslationDetailLine("Detected source", response.detectedSource);
+      printTranslationDetailLine("Current OS", response.currentOs);
+      printTranslationDetailLine(
+        "Matched intent",
+        response.matchedIntent ?? "unknown",
+      );
+      printTranslationDetailLine(
+        "Translated command",
+        response.translatedCommand ?? "unavailable",
+      );
+      printTranslationDetailLine("Risk level", response.riskLevel);
+      printVerboseSectionFooter(SECTION_RULE, settings.translationHintColor);
+    };
+
+    const printTranslationDetailLine = (label: string, value: string) => {
+      const settings = appearanceRef.current;
+      writeStyledLine(
+        [
+          { text: `${label}: `, color: settings.infoColor, bold: true },
+          { text: value, color: settings.translationHintColor },
+        ],
+        "always",
+      );
+    };
+
+    const printExecutionVerbose = (
       stdout: string,
       stderr: string,
       exitStatus: number | null,
     ) => {
+      const settings = appearanceRef.current;
+
       if (stdout.length > 0 || stderr.length > 0) {
-        printLines(["---------------- Command Output ----------------"]);
+        printVerboseSectionHeader("Command Output", settings.infoColor);
 
         if (stdout.length > 0) {
-          writeTerminalLine("[stdout]", "always");
-          writeTerminal(ensureTrailingNewline(stdout), "always");
+          writeStyledLine(
+            [{ text: "[stdout]", color: settings.stdoutColor, bold: true }],
+            "always",
+          );
+          writeColoredBlock(stdout, settings.stdoutColor, "always");
         }
 
         if (stderr.length > 0) {
-          writeTerminalLine("[stderr]", "always");
-          writeTerminal(ensureTrailingNewline(stderr), "always");
+          writeStyledLine(
+            [{ text: "[stderr]", color: settings.stderrColor, bold: true }],
+            "always",
+          );
+          writeColoredBlock(stderr, settings.stderrColor, "always");
         }
 
-        printLines(["------------------------------------------------"]);
+        printVerboseSectionFooter("------------------------------------------------", settings.infoColor);
       }
 
-      printLines([
-        "---------------- Execution Result ----------------",
-        `Exit status: ${exitStatus ?? "unavailable"}`,
-        "--------------------------------------------------",
-      ]);
+      printVerboseSectionHeader("Execution Result", settings.infoColor);
+      writeStyledLine(
+        [
+          {
+            text: `Exit status: ${exitStatus ?? "unavailable"}`,
+            color: exitStatus === 0 ? settings.successColor : settings.errorColor,
+            bold: true,
+          },
+        ],
+        "always",
+      );
+      printVerboseSectionFooter("--------------------------------------------------", settings.infoColor);
+    };
+
+    const printTranslationHint = (
+      source: string,
+      originalCommand: string,
+      targetOs: string,
+      translatedCommand: string,
+    ) => {
+      const settings = appearanceRef.current;
+      writeStyledLine(
+        [
+          { text: "✓ ", color: settings.successColor, bold: true },
+          {
+            text: `${source}: ${originalCommand} → ${targetOs}: ${translatedCommand}`,
+            color: settings.translationHintColor,
+            bold: true,
+          },
+        ],
+        "always",
+      );
+    };
+
+    const printExecutionClean = (
+      stdout: string,
+      stderr: string,
+      exitStatus: number | null,
+    ) => {
+      const settings = appearanceRef.current;
+
+      if (stdout.length > 0) {
+        writeColoredBlock(stdout, settings.stdoutColor, "always");
+      }
+
+      if (stderr.length > 0) {
+        writeStyledLine(
+          [{ text: "[stderr]", color: settings.stderrColor, bold: true }],
+          "always",
+        );
+        writeColoredBlock(stderr, settings.stderrColor, "always");
+      }
+
+      if (exitStatus !== null && exitStatus !== 0) {
+        writeStyledLine(
+          [
+            {
+              text: `✗ Exit status: ${exitStatus}`,
+              color: settings.errorColor,
+              bold: true,
+            },
+          ],
+          "always",
+        );
+      }
     };
 
     const resetLocalState = () => {
@@ -215,6 +498,7 @@ export default function App() {
       confirmationBufferRef.current = "";
       localPromptVisibleRef.current = false;
       awaitingConfirmationRef.current = false;
+      pendingConfirmationDetailsRef.current = null;
     };
 
     const showTranslatePrompt = (prependNewline: boolean) => {
@@ -229,7 +513,14 @@ export default function App() {
         writeTerminal("\r\n", "always");
       }
 
-      writeTerminal(TRANSLATE_PROMPT, "always");
+      writeStyled(
+        buildTranslatePromptSegments(
+          translateCwdRef.current,
+          translateHomeDirRef.current,
+          appearanceRef.current,
+        ),
+        "always",
+      );
       localPromptVisibleRef.current = true;
     };
 
@@ -255,70 +546,105 @@ export default function App() {
       }
     };
 
-    const printTranslateExecution = (
+    const renderCleanTranslateExecution = (
       response: Pick<
         SubmitTerminalLineResponse,
-        "stdout" | "stderr" | "exitStatus" | "clearDisplay"
+        | "originalCommand"
+        | "detectedSource"
+        | "currentOs"
+        | "translatedCommand"
+        | "stdout"
+        | "stderr"
+        | "exitStatus"
+        | "matchedIntent"
       >,
     ) => {
-      printExecutionSections(response.stdout, response.stderr, response.exitStatus);
+      if (shouldPrintCompactTranslationHint(response)) {
+        printTranslationHint(
+          response.detectedSource,
+          response.originalCommand,
+          response.currentOs,
+          response.translatedCommand ?? "unavailable",
+        );
+      }
+
+      printExecutionClean(response.stdout, response.stderr, response.exitStatus);
       showTranslatePrompt(false);
     };
 
-    const cancelPendingConfirmation = async (printCancellation: boolean) => {
-      if (!awaitingConfirmationRef.current) {
-        return;
-      }
-
-      awaitingConfirmationRef.current = false;
-      confirmationBufferRef.current = "";
-      localPromptVisibleRef.current = false;
-
-      try {
-        await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
-          confirmed: false,
-        });
-      } catch (error) {
-        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
-        return;
-      }
-
-      if (printCancellation) {
-        printNotice("CLI4ALL Notice", ["Execution cancelled."]);
-      }
-    };
-
     const handleSubmitResponse = (response: SubmitTerminalLineResponse) => {
+      translateCwdRef.current = response.currentDir;
+
       if (response.clearDisplay) {
         terminal.clear();
         terminal.scrollToBottom();
       }
 
-      printTranslation(response);
+      if (detailModeRef.current === "verbose") {
+        printTranslationVerbose(response);
+      }
 
       switch (response.action) {
         case "execute":
-          printTranslateExecution(response);
+          if (detailModeRef.current === "verbose") {
+            printExecutionVerbose(
+              response.stdout,
+              response.stderr,
+              response.exitStatus,
+            );
+            showTranslatePrompt(false);
+          } else {
+            renderCleanTranslateExecution(response);
+          }
           break;
         case "confirm":
+          pendingConfirmationDetailsRef.current = {
+            originalCommand: response.originalCommand,
+            detectedSource: response.detectedSource,
+            currentOs: response.currentOs,
+            translatedCommand: response.translatedCommand,
+            riskLevel: response.riskLevel,
+            matchedIntent: response.matchedIntent,
+          };
           awaitingConfirmationRef.current = true;
           confirmationBufferRef.current = "";
-          writeTerminalLine(response.confirmationPrompt ?? CONFIRM_PROMPT, "always");
+          writeStyledLine(
+            [
+              {
+                text:
+                  detailModeRef.current === "verbose"
+                    ? response.confirmationPrompt ??
+                      buildCompactConfirmationPrompt(response.riskLevel)
+                    : buildCompactConfirmationPrompt(response.riskLevel),
+                color: appearanceRef.current.warningColor,
+                bold: true,
+              },
+            ],
+            "always",
+          );
           break;
         case "block":
-          printNotice("CLI4ALL Safety", [
-            response.message ?? "Destructive command blocked by CLI4ALL.",
-            response.riskReason
-              ? `Reason: ${response.riskReason}`
-              : "Reason: blocked by safety policy.",
-          ]);
+          printNotice(
+            "CLI4ALL Safety",
+            [
+              response.message ?? "Destructive command blocked by CLI4ALL.",
+              response.riskReason
+                ? `Reason: ${response.riskReason}`
+                : "Reason: blocked by safety policy.",
+            ],
+            "✗ Blocked destructive command.",
+          );
           showTranslatePrompt(false);
           break;
         case "unknown_no_execute":
-          printNotice("CLI4ALL Notice", [
-            response.message ??
-              "Unknown command mapping. CLI4ALL will not execute this command automatically in safe mode.",
-          ]);
+          printNotice(
+            "CLI4ALL Notice",
+            [
+              response.message ??
+                "Unknown command mapping. CLI4ALL will not execute this command automatically in safe mode.",
+            ],
+            "? Unknown command mapping. Not executed.",
+          );
           showTranslatePrompt(false);
           break;
       }
@@ -344,16 +670,23 @@ export default function App() {
         );
         handleSubmitResponse(response);
       } catch (error) {
-        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+        printNotice(
+          "CLI4ALL Notice",
+          [`Backend error: ${String(error)}`],
+          `? Backend error: ${String(error)}`,
+        );
         showTranslatePrompt(false);
       }
     };
 
     const resolveConfirmation = async () => {
       const approved = matchesYes(confirmationBufferRef.current);
+      const pendingDetails = pendingConfirmationDetailsRef.current;
+
       confirmationBufferRef.current = "";
       awaitingConfirmationRef.current = false;
       localPromptVisibleRef.current = false;
+      pendingConfirmationDetailsRef.current = null;
       writeTerminal("\r\n", "always");
 
       try {
@@ -364,8 +697,17 @@ export default function App() {
           },
         );
 
+        translateCwdRef.current = response.currentDir;
+
         if (response.action === "cancelled") {
-          printNotice("CLI4ALL Notice", [response.message]);
+          if (detailModeRef.current === "verbose") {
+            printVerboseNotice("CLI4ALL Notice", [response.message]);
+          } else {
+            writeStyledLine(
+              [{ text: response.message, color: appearanceRef.current.noticeColor }],
+              "always",
+            );
+          }
           showTranslatePrompt(false);
           return;
         }
@@ -375,14 +717,36 @@ export default function App() {
           terminal.scrollToBottom();
         }
 
-        printExecutionSections(
-          response.stdout,
-          response.stderr,
-          response.exitStatus,
-        );
+        if (detailModeRef.current === "verbose") {
+          printExecutionVerbose(
+            response.stdout,
+            response.stderr,
+            response.exitStatus,
+          );
+          showTranslatePrompt(false);
+          return;
+        }
+
+        if (
+          pendingDetails &&
+          shouldPrintCompactTranslationHint(pendingDetails)
+        ) {
+          printTranslationHint(
+            pendingDetails.detectedSource,
+            pendingDetails.originalCommand,
+            pendingDetails.currentOs,
+            pendingDetails.translatedCommand ?? "unavailable",
+          );
+        }
+
+        printExecutionClean(response.stdout, response.stderr, response.exitStatus);
         showTranslatePrompt(false);
       } catch (error) {
-        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+        printNotice(
+          "CLI4ALL Notice",
+          [`Backend error: ${String(error)}`],
+          `? Backend error: ${String(error)}`,
+        );
         showTranslatePrompt(false);
       }
     };
@@ -402,22 +766,30 @@ export default function App() {
         });
         sessionIdRef.current = response.sessionId;
         setCurrentOs(response.currentOs);
+        translateCwdRef.current = response.currentDir;
+        translateHomeDirRef.current = response.homeDir;
         await syncPtySize();
 
         if (modeRef.current === "translate") {
           showTranslatePrompt(false);
         }
       } catch (error) {
-        printNotice("CLI4ALL Notice", [
-          `Failed to start PTY session: ${String(error)}`,
-        ]);
+        printNotice(
+          "CLI4ALL Notice",
+          [`Failed to start PTY session: ${String(error)}`],
+          `? Failed to start PTY session: ${String(error)}`,
+        );
       }
     };
 
     const handleNativeInput = (data: string) => {
       terminal.scrollToBottom();
       void invoke("write_to_pty", { input: data }).catch((error) => {
-        printNotice("CLI4ALL Notice", [`Backend error: ${String(error)}`]);
+        printNotice(
+          "CLI4ALL Notice",
+          [`Backend error: ${String(error)}`],
+          `? Backend error: ${String(error)}`,
+        );
       });
     };
 
@@ -436,7 +808,10 @@ export default function App() {
             }
             return;
           case "\u0003":
-            writeTerminal("^C\r\n", "always");
+            writeStyledLine(
+              [{ text: "^C", color: appearanceRef.current.warningColor, bold: true }],
+              "always",
+            );
             void cancelPendingConfirmation(true).then(() => {
               showTranslatePrompt(false);
             });
@@ -466,7 +841,10 @@ export default function App() {
           if (translateBufferRef.current.length > 0 || localPromptVisibleRef.current) {
             translateBufferRef.current = "";
             localPromptVisibleRef.current = false;
-            writeTerminal("^C\r\n", "always");
+            writeStyledLine(
+              [{ text: "^C", color: appearanceRef.current.warningColor, bold: true }],
+              "always",
+            );
             showTranslatePrompt(false);
           } else {
             handleNativeInput("\u0003");
@@ -484,6 +862,41 @@ export default function App() {
 
           translateBufferRef.current += data;
           writeTerminal(data, "always");
+      }
+    };
+
+    const cancelPendingConfirmation = async (printCancellation: boolean) => {
+      if (!awaitingConfirmationRef.current) {
+        return;
+      }
+
+      awaitingConfirmationRef.current = false;
+      confirmationBufferRef.current = "";
+      localPromptVisibleRef.current = false;
+      pendingConfirmationDetailsRef.current = null;
+
+      try {
+        await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
+          confirmed: false,
+        });
+      } catch (error) {
+        printNotice(
+          "CLI4ALL Notice",
+          [`Backend error: ${String(error)}`],
+          `? Backend error: ${String(error)}`,
+        );
+        return;
+      }
+
+      if (printCancellation) {
+        if (detailModeRef.current === "verbose") {
+          printVerboseNotice("CLI4ALL Notice", ["Execution cancelled."]);
+        } else {
+          writeStyledLine(
+            [{ text: "Execution cancelled.", color: appearanceRef.current.noticeColor }],
+            "always",
+          );
+        }
       }
     };
 
@@ -549,14 +962,15 @@ export default function App() {
       sessionIdRef.current = null;
       hiddenPtyOutputRef.current = "";
       resetLocalState();
-      printNotice("CLI4ALL Notice", [
-        "PTY session ended. Use New Session to start another terminal.",
-      ]);
+      printNotice(
+        "CLI4ALL Notice",
+        ["PTY session ended. Use New Session to start another terminal."],
+        "[CLI4ALL] PTY session ended. Use New Session to start another terminal.",
+      );
     }).then((unlisten) => {
       unlistenExit = unlisten;
     });
 
-    writeTerminalLine("CLI4ALL PTY terminal", "always");
     void startSession();
 
     return () => {
@@ -586,6 +1000,7 @@ export default function App() {
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
     awaitingConfirmationRef.current = false;
+    pendingConfirmationDetailsRef.current = null;
 
     const nextMode: TerminalMode =
       modeRef.current === "native" ? "translate" : "native";
@@ -594,11 +1009,20 @@ export default function App() {
 
     terminal.scrollToBottom();
     writeTerminalAndScroll(terminal, "\r\n");
-    printToolbarModeNotice(terminal, nextMode);
+    printModeSwitchNotice(terminal, nextMode, detailModeRef.current, appearanceRef.current);
 
     if (nextMode === "translate") {
       terminal.focus();
-      writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
+      writeTerminalAndScroll(
+        terminal,
+        styleSegments(
+          buildTranslatePromptSegments(
+            translateCwdRef.current,
+            translateHomeDirRef.current,
+            appearanceRef.current,
+          ),
+        ),
+      );
       localPromptVisibleRef.current = true;
       return;
     }
@@ -626,6 +1050,7 @@ export default function App() {
     localPromptVisibleRef.current = false;
     awaitingConfirmationRef.current = false;
     hiddenPtyOutputRef.current = "";
+    pendingConfirmationDetailsRef.current = null;
 
     fitAddon.fit();
     terminal.reset();
@@ -639,12 +1064,23 @@ export default function App() {
       });
       sessionIdRef.current = response.sessionId;
       setCurrentOs(response.currentOs);
+      translateCwdRef.current = response.currentDir;
+      translateHomeDirRef.current = response.homeDir;
       await invoke("resize_pty", {
         cols: terminal.cols,
         rows: terminal.rows,
       });
       if (modeRef.current === "translate") {
-        writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
+        writeTerminalAndScroll(
+          terminal,
+          styleSegments(
+            buildTranslatePromptSegments(
+              translateCwdRef.current,
+              translateHomeDirRef.current,
+              appearanceRef.current,
+            ),
+          ),
+        );
         localPromptVisibleRef.current = true;
       }
     } catch (error) {
@@ -655,11 +1091,13 @@ export default function App() {
     }
   };
 
-  const clearTerminal = () => {
+  const clearTerminal = async () => {
     const terminal = terminalRef.current;
     if (!terminal) {
       return;
     }
+
+    await cancelConfirmationFromToolbar();
 
     terminal.clear();
     terminal.scrollToBottom();
@@ -669,7 +1107,17 @@ export default function App() {
       confirmationBufferRef.current = "";
       awaitingConfirmationRef.current = false;
       localPromptVisibleRef.current = false;
-      writeTerminalAndScroll(terminal, TRANSLATE_PROMPT);
+      pendingConfirmationDetailsRef.current = null;
+      writeTerminalAndScroll(
+        terminal,
+        styleSegments(
+          buildTranslatePromptSegments(
+            translateCwdRef.current,
+            translateHomeDirRef.current,
+            appearanceRef.current,
+          ),
+        ),
+      );
       localPromptVisibleRef.current = true;
       return;
     }
@@ -687,6 +1135,7 @@ export default function App() {
     awaitingConfirmationRef.current = false;
     confirmationBufferRef.current = "";
     localPromptVisibleRef.current = false;
+    pendingConfirmationDetailsRef.current = null;
 
     try {
       await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
@@ -697,31 +1146,88 @@ export default function App() {
     }
   };
 
+  const toggleDetailMode = () => {
+    setDetailMode((current) => (current === "clean" ? "verbose" : "clean"));
+  };
+
+  const updateAppearance = <K extends keyof AppearanceSettings>(
+    key: K,
+    value: AppearanceSettings[K],
+  ) => {
+    setAppearance((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const handleBackgroundImagePick = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      if (!result) {
+        return;
+      }
+
+      setAppearance((current) => ({
+        ...current,
+        backgroundMode: "image",
+        backgroundImage: result,
+      }));
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const resetBackgroundImage = () => {
+    setAppearance((current) => ({
+      ...current,
+      backgroundMode: "color",
+      backgroundImage: null,
+    }));
+  };
+
+  const resetAppearance = () => {
+    setAppearance(DEFAULT_APPEARANCE_SETTINGS);
+  };
+
+  const terminalSurfaceStyle = buildTerminalSurfaceStyle(appearance);
+  const terminalViewportStyle: CSSProperties & Record<string, string> = {
+    "--terminal-font-style": appearance.italic ? "italic" : "normal",
+  };
+
   return (
     <main className="app-shell">
       <section className="terminal-frame">
         <header className="frame-bar">
           <div className="frame-title-block">
-            <div className="traffic-lights" aria-hidden="true">
-              <span className="dot dot-red" />
-              <span className="dot dot-yellow" />
-              <span className="dot dot-green" />
-            </div>
-            <div>
-              <div className="frame-title">CLI4ALL</div>
-              <div className="frame-subtitle">
-                PTY-backed desktop terminal for {currentOs}
-              </div>
+            <div className="frame-title">CLI4ALL</div>
+            <div className="frame-subtitle">
+              Cross-platform command translation terminal
             </div>
           </div>
 
           <div className="toolbar">
-            <div className="mode-pill">Current Mode: {modeLabel(mode)}</div>
+            <div
+              className="mode-pill"
+              style={{ color: appearance.modeTagColor, borderColor: `${appearance.modeTagColor}44` }}
+            >
+              {modeLabel(mode)}
+            </div>
+            <div className="mode-pill">Output: {detailModeLabel(detailMode)}</div>
+            <div className="toolbar-spacer" />
             <button className="toolbar-button" type="button" onClick={startNewSession}>
               New Session
             </button>
             <button className="toolbar-button" type="button" onClick={clearTerminal}>
               Clear Terminal
+            </button>
+            <button className="toolbar-button" type="button" onClick={toggleDetailMode}>
+              Verbose: {detailMode === "verbose" ? "On" : "Off"}
             </button>
             <button
               className="toolbar-button toolbar-button-primary"
@@ -732,12 +1238,492 @@ export default function App() {
                 ? "Switch to Translate Mode"
                 : "Switch to Native Mode"}
             </button>
+            <button
+              className="toolbar-button toolbar-button-settings"
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+            >
+              Settings
+            </button>
           </div>
         </header>
-        <div className="terminal-surface" ref={terminalContainerRef} />
+        <div className="terminal-surface" style={terminalSurfaceStyle}>
+          <div className="terminal-background-overlay" />
+          <div
+            className="terminal-viewport"
+            ref={terminalContainerRef}
+            style={terminalViewportStyle}
+          />
+        </div>
       </section>
+
+      {isSettingsOpen ? (
+        <div
+          className="settings-backdrop"
+          role="presentation"
+          onClick={() => setIsSettingsOpen(false)}
+        >
+          <aside
+            className="settings-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Appearance settings"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="settings-header">
+              <div>
+                <div className="settings-title">Appearance Settings</div>
+                <div className="settings-subtitle">
+                  Customize the CLI4ALL terminal look without changing terminal behavior.
+                </div>
+              </div>
+              <button
+                className="toolbar-button"
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <section className="settings-section">
+              <h2>Background</h2>
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="background-mode">
+                  Background mode
+                </label>
+                <select
+                  id="background-mode"
+                  className="setting-control"
+                  value={appearance.backgroundMode}
+                  onChange={(event) =>
+                    updateAppearance(
+                      "backgroundMode",
+                      event.target.value as BackgroundMode,
+                    )
+                  }
+                >
+                  <option value="color">Solid color</option>
+                  <option value="image">Background image</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="background-color">
+                  Background color
+                </label>
+                <input
+                  id="background-color"
+                  className="setting-color"
+                  type="color"
+                  value={appearance.backgroundColor}
+                  onChange={(event) =>
+                    updateAppearance("backgroundColor", event.target.value)
+                  }
+                />
+              </div>
+
+              <div className="setting-row setting-row-stack">
+                <span className="setting-label">Background image</span>
+                <div className="background-actions">
+                  <button
+                    className="toolbar-button"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Choose Image
+                  </button>
+                  <button
+                    className="toolbar-button"
+                    type="button"
+                    onClick={resetBackgroundImage}
+                  >
+                    Remove Image
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  className="settings-file-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleBackgroundImagePick}
+                />
+                <div className="setting-help">
+                  {appearance.backgroundImage
+                    ? "Image selected. Stored locally in app settings."
+                    : "No background image selected."}
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="overlay-opacity">
+                  Image overlay
+                </label>
+                <div className="setting-inline">
+                  <input
+                    id="overlay-opacity"
+                    className="setting-range"
+                    type="range"
+                    min="0.15"
+                    max="0.85"
+                    step="0.05"
+                    value={appearance.backgroundOverlayOpacity}
+                    onChange={(event) =>
+                      updateAppearance(
+                        "backgroundOverlayOpacity",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                  <span className="setting-value">
+                    {Math.round(appearance.backgroundOverlayOpacity * 100)}%
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h2>Typography</h2>
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="font-family">
+                  Font family
+                </label>
+                <select
+                  id="font-family"
+                  className="setting-control"
+                  value={appearance.fontFamily}
+                  onChange={(event) =>
+                    updateAppearance("fontFamily", event.target.value)
+                  }
+                >
+                  {FONT_FAMILIES.map((font) => (
+                    <option key={font} value={font}>
+                      {font}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="font-size">
+                  Font size
+                </label>
+                <div className="setting-inline">
+                  <input
+                    id="font-size"
+                    className="setting-range"
+                    type="range"
+                    min="11"
+                    max="22"
+                    step="1"
+                    value={appearance.fontSize}
+                    onChange={(event) =>
+                      updateAppearance("fontSize", Number(event.target.value))
+                    }
+                  />
+                  <span className="setting-value">{appearance.fontSize}px</span>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="font-weight">
+                  Font weight
+                </label>
+                <select
+                  id="font-weight"
+                  className="setting-control"
+                  value={appearance.fontWeight}
+                  onChange={(event) =>
+                    updateAppearance("fontWeight", Number(event.target.value))
+                  }
+                >
+                  {FONT_WEIGHTS.map((weight) => (
+                    <option key={weight} value={weight}>
+                      {weight}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <label className="setting-label" htmlFor="font-italic">
+                  Italic
+                </label>
+                <label className="setting-toggle">
+                  <input
+                    id="font-italic"
+                    type="checkbox"
+                    checked={appearance.italic}
+                    onChange={(event) =>
+                      updateAppearance("italic", event.target.checked)
+                    }
+                  />
+                  <span>{appearance.italic ? "On" : "Off"}</span>
+                </label>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h2>Semantic Colors</h2>
+              <div className="settings-grid">
+                <ColorSetting
+                  label="Prompt"
+                  value={appearance.promptColor}
+                  onChange={(value) => updateAppearance("promptColor", value)}
+                />
+                <ColorSetting
+                  label="Mode tag"
+                  value={appearance.modeTagColor}
+                  onChange={(value) => updateAppearance("modeTagColor", value)}
+                />
+                <ColorSetting
+                  label="Translation hint"
+                  value={appearance.translationHintColor}
+                  onChange={(value) =>
+                    updateAppearance("translationHintColor", value)
+                  }
+                />
+                <ColorSetting
+                  label="Success"
+                  value={appearance.successColor}
+                  onChange={(value) => updateAppearance("successColor", value)}
+                />
+                <ColorSetting
+                  label="Warning"
+                  value={appearance.warningColor}
+                  onChange={(value) => updateAppearance("warningColor", value)}
+                />
+                <ColorSetting
+                  label="Error"
+                  value={appearance.errorColor}
+                  onChange={(value) => updateAppearance("errorColor", value)}
+                />
+                <ColorSetting
+                  label="Stdout"
+                  value={appearance.stdoutColor}
+                  onChange={(value) => updateAppearance("stdoutColor", value)}
+                />
+                <ColorSetting
+                  label="Stderr"
+                  value={appearance.stderrColor}
+                  onChange={(value) => updateAppearance("stderrColor", value)}
+                />
+                <ColorSetting
+                  label="Notice"
+                  value={appearance.noticeColor}
+                  onChange={(value) => updateAppearance("noticeColor", value)}
+                />
+                <ColorSetting
+                  label="Info"
+                  value={appearance.infoColor}
+                  onChange={(value) => updateAppearance("infoColor", value)}
+                />
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h2>Terminal Base Theme</h2>
+              <div className="settings-grid">
+                <ColorSetting
+                  label="Terminal foreground"
+                  value={appearance.terminalForeground}
+                  onChange={(value) =>
+                    updateAppearance("terminalForeground", value)
+                  }
+                />
+                <ColorSetting
+                  label="Terminal background"
+                  value={appearance.terminalBackground}
+                  onChange={(value) =>
+                    updateAppearance("terminalBackground", value)
+                  }
+                />
+                <ColorSetting
+                  label="Cursor"
+                  value={appearance.cursorColor}
+                  onChange={(value) => updateAppearance("cursorColor", value)}
+                />
+                <ColorSetting
+                  label="Selection"
+                  value={appearance.selectionColor}
+                  onChange={(value) => updateAppearance("selectionColor", value)}
+                />
+              </div>
+            </section>
+
+            <section className="settings-section settings-footer">
+              <button className="toolbar-button" type="button" onClick={resetAppearance}>
+                Reset to Default Theme
+              </button>
+            </section>
+          </aside>
+        </div>
+      ) : null}
     </main>
   );
+}
+
+function ColorSetting({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="color-setting">
+      <span>{label}</span>
+      <input
+        className="setting-color"
+        type="color"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function loadAppearanceSettings(): AppearanceSettings {
+  if (typeof window === "undefined") {
+    return DEFAULT_APPEARANCE_SETTINGS;
+  }
+
+  const saved = window.localStorage.getItem(APPEARANCE_STORAGE_KEY);
+  if (!saved) {
+    return DEFAULT_APPEARANCE_SETTINGS;
+  }
+
+  try {
+    const parsed = JSON.parse(saved) as Partial<AppearanceSettings>;
+    return {
+      ...DEFAULT_APPEARANCE_SETTINGS,
+      ...parsed,
+      backgroundMode:
+        parsed.backgroundMode === "image" ? "image" : "color",
+      backgroundImage:
+        typeof parsed.backgroundImage === "string"
+          ? parsed.backgroundImage
+          : null,
+      backgroundOverlayOpacity:
+        typeof parsed.backgroundOverlayOpacity === "number"
+          ? clamp(parsed.backgroundOverlayOpacity, 0.15, 0.85)
+          : DEFAULT_APPEARANCE_SETTINGS.backgroundOverlayOpacity,
+      fontSize:
+        typeof parsed.fontSize === "number"
+          ? clamp(parsed.fontSize, 11, 22)
+          : DEFAULT_APPEARANCE_SETTINGS.fontSize,
+      fontWeight:
+        typeof parsed.fontWeight === "number"
+          ? parsed.fontWeight
+          : typeof parsed.fontWeight === "string"
+            ? Number(parsed.fontWeight) || DEFAULT_APPEARANCE_SETTINGS.fontWeight
+          : DEFAULT_APPEARANCE_SETTINGS.fontWeight,
+      italic: Boolean(parsed.italic),
+    };
+  } catch {
+    return DEFAULT_APPEARANCE_SETTINGS;
+  }
+}
+
+function buildXtermTheme(settings: AppearanceSettings): TerminalThemeLike {
+  const background =
+    settings.backgroundMode === "image" && settings.backgroundImage
+      ? hexToRgba(settings.terminalBackground, settings.backgroundOverlayOpacity)
+      : settings.terminalBackground;
+
+  return {
+    background,
+    foreground: settings.terminalForeground,
+    cursor: settings.cursorColor,
+    selectionBackground: hexToRgba(settings.selectionColor, 0.32),
+    black: "#07111c",
+    blue: "#62b1ff",
+    brightBlack: "#486174",
+    brightBlue: "#9dd1ff",
+    brightCyan: "#97f1e3",
+    brightGreen: "#c0e77d",
+    brightMagenta: "#f3a4b8",
+    brightRed: "#ff8f7a",
+    brightWhite: "#f5fbff",
+    brightYellow: "#ffd479",
+    cyan: "#6cd6c3",
+    green: "#91d45a",
+    magenta: "#df87a6",
+    red: "#ff6b57",
+    white: settings.terminalForeground,
+    yellow: "#f3c65f",
+  };
+}
+
+function buildTranslatePromptSegments(
+  currentDir: string,
+  homeDir: string | null,
+  settings: AppearanceSettings,
+): StyledSegment[] {
+  return [
+    { text: "CLI4ALL ", color: settings.promptColor, bold: true },
+    { text: "[translate]", color: settings.modeTagColor, bold: true },
+    {
+      text: ` ${formatPromptPath(currentDir, homeDir)} `,
+      color: settings.promptColor,
+      bold: true,
+    },
+    { text: "❯ ", color: settings.promptColor, bold: true },
+  ];
+}
+
+function formatPromptPath(currentDir: string, homeDir: string | null): string {
+  if (!currentDir) {
+    return "~";
+  }
+
+  if (!homeDir || homeDir.length === 0) {
+    return currentDir;
+  }
+
+  if (currentDir === homeDir) {
+    return "~";
+  }
+
+  if (currentDir.startsWith(`${homeDir}/`)) {
+    return `~${currentDir.slice(homeDir.length)}`;
+  }
+
+  if (currentDir.startsWith(`${homeDir}\\`)) {
+    return `~${currentDir.slice(homeDir.length)}`;
+  }
+
+  return currentDir;
+}
+
+function shouldPrintCompactTranslationHint(
+  response: Pick<
+    SubmitTerminalLineResponse,
+    | "detectedSource"
+    | "matchedIntent"
+    | "originalCommand"
+    | "translatedCommand"
+    | "currentOs"
+  >,
+): boolean {
+  if (!response.translatedCommand) {
+    return false;
+  }
+
+  if (response.detectedSource === BUILTIN_SOURCE) {
+    return !matchesIntent(response.matchedIntent, [
+      "print_working_directory",
+      "change_directory",
+    ]);
+  }
+
+  return true;
+}
+
+function matchesIntent(intent: string | null, accepted: string[]): boolean {
+  return intent !== null && accepted.includes(intent);
 }
 
 function isPrintableInput(data: string): boolean {
@@ -757,10 +1743,54 @@ function modeLabel(mode: TerminalMode): string {
   return mode === "native" ? "Native Mode" : "Translate Mode";
 }
 
-function printToolbarModeNotice(terminal: Terminal, mode: TerminalMode) {
-  writeTerminalAndScroll(terminal, "---------------- CLI4ALL Mode ----------------\r\n");
-  writeTerminalAndScroll(terminal, `Switched to ${modeLabel(mode)}\r\n`);
-  writeTerminalAndScroll(terminal, `${MODE_RULE}\r\n`);
+function detailModeLabel(mode: DetailMode): string {
+  return mode === "clean" ? "Clean" : "Verbose";
+}
+
+function printModeSwitchNotice(
+  terminal: Terminal,
+  mode: TerminalMode,
+  detailMode: DetailMode,
+  settings: AppearanceSettings,
+) {
+  if (detailMode === "verbose") {
+    writeTerminalAndScroll(
+      terminal,
+      `${styleSegments([
+        {
+          text: "---------------- CLI4ALL Mode ----------------",
+          color: settings.infoColor,
+          bold: true,
+        },
+      ])}\r\n`,
+    );
+    writeTerminalAndScroll(
+      terminal,
+      `${styleSegments([
+        {
+          text: `Switched to ${modeLabel(mode)}`,
+          color: settings.infoColor,
+          bold: true,
+        },
+      ])}\r\n`,
+    );
+    writeTerminalAndScroll(
+      terminal,
+      `${styleSegments([{ text: MODE_RULE, color: settings.infoColor }])}\r\n`,
+    );
+    return;
+  }
+
+  writeTerminalAndScroll(
+    terminal,
+    `${styleSegments([
+      {
+        text: `[CLI4ALL] Switched to ${modeLabel(mode)}`,
+        color: settings.infoColor,
+        bold: true,
+      },
+    ])}\r\n`,
+  );
 }
 
 function writeTerminalAndScroll(terminal: Terminal, data: string) {
@@ -784,4 +1814,77 @@ function appendBufferedPtyOutput(current: string, next: string): string {
 
 function ensureTrailingNewline(stream: string): string {
   return stream.endsWith("\n") ? stream : `${stream}\n`;
+}
+
+function buildCompactConfirmationPrompt(riskLevel: string): string {
+  return `! Risk: ${riskLevel}. Execute translated command? [y/N]`;
+}
+
+function buildTerminalSurfaceStyle(settings: AppearanceSettings): CSSProperties {
+  const style: CSSProperties & Record<string, string> = {
+    backgroundColor: settings.backgroundColor,
+    backgroundImage:
+      settings.backgroundMode === "image" && settings.backgroundImage
+        ? `url(${settings.backgroundImage})`
+        : "none",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+  };
+
+  style["--terminal-overlay-opacity"] =
+    settings.backgroundMode === "image" && settings.backgroundImage
+      ? String(settings.backgroundOverlayOpacity)
+      : "0";
+
+  return style;
+}
+
+function styleSegments(segments: StyledSegment[]): string {
+  return segments
+    .map((segment) => {
+      const codes: string[] = [];
+      if (segment.bold) {
+        codes.push("1");
+      }
+      if (segment.italic) {
+        codes.push("3");
+      }
+      if (segment.color) {
+        const [red, green, blue] = hexToRgb(segment.color);
+        codes.push(`38;2;${red};${green};${blue}`);
+      }
+      if (codes.length === 0) {
+        return segment.text;
+      }
+      return `\u001b[${codes.join(";")}m${segment.text}\u001b[0m`;
+    })
+    .join("");
+}
+
+function hexToRgb(color: string): [number, number, number] {
+  const normalized = color.replace("#", "");
+  const hex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((part) => `${part}${part}`)
+          .join("")
+      : normalized;
+
+  const value = Number.parseInt(hex, 16);
+  return [
+    (value >> 16) & 255,
+    (value >> 8) & 255,
+    value & 255,
+  ];
+}
+
+function hexToRgba(color: string, alpha: number): string {
+  const [red, green, blue] = hexToRgb(color);
+  return `rgba(${red}, ${green}, ${blue}, ${clamp(alpha, 0, 1)})`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }

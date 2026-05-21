@@ -28,6 +28,9 @@
 *.7z
 *.app
 
+# Raw command inventories generated from local machines
+/data/raw/generated/*.json
+
 # Git backup directories - never commit
 .git_backup*/
 .git_backup_*

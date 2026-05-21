@@ -20,6 +20,11 @@ In shell mode and in the desktop backend, CLI4ALL:
 - runs only the translated native command after safety checks
 - prints the real stdout, stderr, and exit status
 
+The command catalog is intent-based rather than literal-string based. A single intent such as
+`list_files` can include Windows CMD aliases like `dir`, PowerShell aliases like
+`Get-ChildItem`, and macOS/Linux aliases like `ls`, while still translating to the correct native
+target command for the current platform.
+
 ## Safety Model
 
 CLI4ALL does not blindly execute user input. In interactive shell mode and in the desktop backend, CLI4ALL executes only known translated native commands after detection, translation, and safety checks.
@@ -102,7 +107,7 @@ cli4all-windows> ls -la
 Original command: ls -la
 Detected source: Ubuntu
 Current OS: Windows
-Matched intent: list_files
+Matched intent: list_all_files
 Translated command: Get-ChildItem -Force
 Risk level: low
 Running: Get-ChildItem -Force
@@ -110,9 +115,11 @@ Running: Get-ChildItem -Force
 
 ## Rule Files
 
-- `data/commands.source.json` is the source catalog used to build the read-only runtime store.
-- `data/commands.c4idx` stores the B+ Tree index used at runtime.
-- `data/commands.c4dat` stores serialized command records used at runtime.
+- `data/commands.source.json` is the source catalog. Edit this file when you add or refine mappings.
+- `data/commands.yaml` is a readable YAML mirror of the source catalog for review and documentation.
+- `data/commands.c4idx` is a generated read-only B+ Tree index over normalized lookup keys.
+- `data/commands.c4dat` is a generated flat data file containing serialized command records.
+- `data/commands.candidates.json` is a review-only candidate file generated from raw inventories.
 - `data/risks.yaml` stores regex-driven safety rules.
 
 Rebuild the runtime store after editing the source catalog:
@@ -120,6 +127,48 @@ Rebuild the runtime store after editing the source catalog:
 ```bash
 cargo run -- build-index --input data/commands.source.json --index data/commands.c4idx --data data/commands.c4dat
 ```
+
+Current expansion priority is macOS <-> Windows command coverage, with Ubuntu/Linux mappings
+continuing to grow alongside them.
+
+Examples:
+
+| Source command | Target OS | Native translation |
+| --- | --- | --- |
+| `ipconfig` | macOS | `ifconfig` |
+| `dir` | macOS | `ls` |
+| `cls` | macOS | `clear` |
+| `ls` | Windows | `Get-ChildItem` |
+| `clear` | Windows | `Clear-Host` |
+| `open .` | Windows | `Invoke-Item .` |
+
+## Command Inventory Pipeline
+
+CLI4ALL keeps raw command inventory separate from reviewed runtime mappings.
+
+- `tools/collectors/collect_macos_zsh.sh` collects zsh builtins, aliases, functions, and PATH commands on macOS.
+- `tools/collectors/collect_gnu_linux.sh` collects bash builtins, aliases, functions, and PATH commands on GNU/Linux.
+- `tools/collectors/collect_powershell.ps1` collects PowerShell commands from `Get-Command *`.
+- `tools/collectors/collect_windows_cmd.ps1` collects Windows CMD internal commands from `cmd /c help`, a seed list, and discoverable external applications.
+- `tools/collectors/generate_command_candidates.py` reads raw inventories and writes `data/commands.candidates.json`.
+
+Raw inventory strategy:
+
+- `data/raw/generated/` is for machine-generated inventories and is ignored by git.
+- `data/raw/samples/` contains small committed sample inventories used to exercise the candidate pipeline.
+- Raw inventories are never merged automatically into `data/commands.source.json`.
+- Every candidate must be reviewed for intent, argument behavior, and safety before promotion.
+
+Current limitation:
+
+- shell-variable syntax such as `echo %VAR%`, `$env:VAR`, and `echo $VAR` is platform-specific and does not fit the current placeholder model cleanly enough for automatic reviewed mapping yet.
+
+## Official Command Sources
+
+- Windows CMD reference: <https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/windows-commands>
+- PowerShell command discovery: <https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/get-command?view=powershell-7.5>
+- GNU Coreutils manual: <https://www.gnu.org/software/coreutils/manual/coreutils.html>
+- zsh shell builtins reference: <https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html>
 
 ## Development
 

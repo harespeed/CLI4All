@@ -1,0 +1,328 @@
+{
+  "candidates": [
+    {
+      "candidate_intent": "list_files",
+      "confidence": "high",
+      "platforms": [
+        "linux",
+        "macos",
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "ls",
+          "platform": "linux",
+          "shell": "bash",
+          "source_file": "gnu_linux_commands.sample.json"
+        },
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "ls",
+          "platform": "macos",
+          "shell": "zsh",
+          "source_file": "macos_zsh_commands.sample.json"
+        },
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Get-ChildItem",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "dir",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Standard directory listing commands converge on a single read-only listing intent.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "clear_screen",
+      "confidence": "high",
+      "platforms": [
+        "linux",
+        "macos",
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "clear",
+          "platform": "linux",
+          "shell": "bash",
+          "source_file": "gnu_linux_commands.sample.json"
+        },
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "clear",
+          "platform": "macos",
+          "shell": "zsh",
+          "source_file": "macos_zsh_commands.sample.json"
+        },
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Clear-Host",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "cls",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Shell screen-clearing commands are stable aliases across platforms.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "show_ip_config",
+      "confidence": "medium",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "ip",
+          "platform": "linux",
+          "shell": "bash",
+          "source_file": "gnu_linux_commands.sample.json"
+        },
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "ifconfig",
+          "platform": "macos",
+          "shell": "zsh",
+          "source_file": "macos_zsh_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "ipconfig",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "These commands all inspect interface and address state without mutating the system.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "show_processes",
+      "confidence": "medium",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "ps",
+          "platform": "linux",
+          "shell": "bash",
+          "source_file": "gnu_linux_commands.sample.json"
+        },
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "ps",
+          "platform": "macos",
+          "shell": "zsh",
+          "source_file": "macos_zsh_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "tasklist",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Process-listing commands are high-confidence inspection aliases.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "kill_process",
+      "confidence": "medium",
+      "platforms": [
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Stop-Process",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "taskkill",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Process termination commands share a clear intent but require reviewed safety handling.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "show_file_content",
+      "confidence": "high",
+      "platforms": [
+        "linux",
+        "macos",
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "cat",
+          "platform": "linux",
+          "shell": "bash",
+          "source_file": "gnu_linux_commands.sample.json"
+        },
+        {
+          "detected_from": "PATH",
+          "kind": "external",
+          "name": "cat",
+          "platform": "macos",
+          "shell": "zsh",
+          "source_file": "macos_zsh_commands.sample.json"
+        },
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Get-Content",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "type",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Text-file inspection commands are consistent read-only aliases.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "copy_file",
+      "confidence": "medium",
+      "platforms": [
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Copy-Item",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "copy",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Basic file copy commands line up well across platforms.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "move_or_rename",
+      "confidence": "medium",
+      "platforms": [
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Move-Item",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "move",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Move and rename commands have a well-understood shared intent but deserve confirmation review.",
+      "requires_human_review": true
+    },
+    {
+      "candidate_intent": "remove_file",
+      "confidence": "medium",
+      "platforms": [
+        "powershell",
+        "windows"
+      ],
+      "possible_aliases": [
+        {
+          "detected_from": "Get-Command *",
+          "kind": "cmdlet",
+          "name": "Remove-Item",
+          "platform": "powershell",
+          "shell": "powershell",
+          "source_file": "powershell_commands.sample.json"
+        },
+        {
+          "detected_from": "cmd /c help",
+          "kind": "internal",
+          "name": "del",
+          "platform": "windows",
+          "shell": "cmd",
+          "source_file": "windows_cmd_commands.sample.json"
+        }
+      ],
+      "reason": "Deletion aliases are easy to identify, but they must remain behind CLI4ALL safety policy.",
+      "requires_human_review": true
+    }
+  ]
+}

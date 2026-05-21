@@ -1,0 +1,94 @@
+[
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "cls",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "copy",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "del",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "dir",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "findstr",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "Get-Command -CommandType Application",
+    "kind": "external",
+    "name": "curl.exe",
+    "notes": "C:\\Windows\\System32\\curl.exe",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "ipconfig",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "move",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "route",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "taskkill",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "tasklist",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "type",
+    "shell": "cmd",
+    "source_platform": "windows"
+  },
+  {
+    "detected_from": "cmd /c help",
+    "kind": "internal",
+    "name": "where",
+    "shell": "cmd",
+    "source_platform": "windows"
+  }
+]

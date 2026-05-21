@@ -5,9 +5,35 @@ risks:
     patterns:
       - '(?i)^\s*(?:sudo\s+)?rm\s+-[A-Za-z]*r[A-Za-z]*f[A-Za-z]*\s+/(?:\s|$)'
       - '(?i)^\s*(?:sudo\s+)?rm\s+-[A-Za-z]*f[A-Za-z]*r[A-Za-z]*\s+/(?:\s|$)'
+      - '(?i)^\s*(?:rmdir|rd)\s+/S\s+[A-Za-z]:\\?(?:\s|$)'
+      - '(?i)^\s*Remove-Item(?:\s+-[A-Za-z]+)*\s+[A-Za-z]:\\?(?:\s|$)'
 
   - name: recursive-world-writable
     level: high
     reason: recursively grants full read, write, and execute permissions to everyone.
     patterns:
       - '(?i)^\s*chmod\s+-R\s+777(?:\s|$)'
+
+  - name: curl-piped-to-shell
+    level: high
+    reason: downloads remote content and pipes it directly into a shell interpreter.
+    patterns:
+      - '(?i)^\s*(?:curl|wget)\b.*\|\s*(?:sh|bash|zsh|pwsh|powershell)(?:\s|$)'
+
+  - name: windows-format-drive
+    level: destructive
+    reason: formats a disk or volume and destroys existing data.
+    patterns:
+      - '(?i)^\s*format(?:\.com)?\s+[A-Za-z]:(?:\s|$)'
+
+  - name: unix-mkfs
+    level: destructive
+    reason: creates a filesystem and overwrites disk contents.
+    patterns:
+      - '(?i)^\s*(?:sudo\s+)?mkfs(?:\.[A-Za-z0-9_+-]+)?\b'
+
+  - name: macos-diskutil-erase
+    level: destructive
+    reason: erases a macOS disk or volume.
+    patterns:
+      - '(?i)^\s*diskutil\s+erase(?:Disk|Volume)\b'
