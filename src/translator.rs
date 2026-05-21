@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 
 use crate::detector::{detect_command, Detection};
 use crate::platform::normalize_target_platform;
-use crate::rules::placeholder_name;
+use crate::rules::apply_template_captures;
 use crate::store::CommandStore;
 
 #[derive(Debug, Clone)]
@@ -39,7 +39,7 @@ pub fn translate_detection(
         .intent
         .target_commands(target_platform.key())
         .iter()
-        .map(|command| apply_captures(command, &detection.captures))
+        .map(|command| apply_template_captures(command, &detection.captures))
         .filter(|command| !contains_placeholder(command))
         .collect::<Vec<_>>();
 
@@ -57,24 +57,6 @@ pub fn translate_detection(
         suggestions,
     }))
 }
-
-fn apply_captures(template: &str, captures: &std::collections::BTreeMap<String, String>) -> String {
-    template
-        .split_whitespace()
-        .map(|token| {
-            if let Some(name) = placeholder_name(token) {
-                captures
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| token.to_string())
-            } else {
-                token.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 pub fn display_platform_name(platform: &str) -> &str {
     match platform {
         "windows_cmd" => "Windows CMD",

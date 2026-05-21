@@ -1,4 +1,5 @@
 use crate::detector::detect_command;
+use crate::rules::apply_template_captures;
 use crate::store::CommandStore;
 use crate::translator::display_platform_name;
 
@@ -17,14 +18,7 @@ pub fn suggest_fix(input: &str, store: &impl CommandStore) -> anyhow::Result<Opt
             .intent
             .ubuntu_commands()
             .iter()
-            .map(|command| {
-                detection
-                    .captures
-                    .iter()
-                    .fold(command.clone(), |value, (name, captured)| {
-                        value.replace(&format!("<{name}>"), captured)
-                    })
-            })
+            .map(|command| apply_template_captures(command, &detection.captures))
             .collect(),
     }))
 }

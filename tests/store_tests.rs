@@ -100,6 +100,28 @@ fn finds_dir_by_exact_command() {
 }
 
 #[test]
+fn finds_placeholder_command_by_template_scan() {
+    let store = build_temp_store();
+    let record = store
+        .find_by_command("type file.txt")
+        .expect("lookup should succeed")
+        .expect("record should exist");
+
+    assert_eq!(record.intent, "show_file_content");
+}
+
+#[test]
+fn finds_quoted_placeholder_command_by_template_scan() {
+    let store = build_temp_store();
+    let record = store
+        .find_by_command(r#"copy "old name.txt" "new name.txt""#)
+        .expect("lookup should succeed")
+        .expect("record should exist");
+
+    assert_eq!(record.intent, "copy_file");
+}
+
+#[test]
 fn finds_record_by_intent() {
     let store = build_temp_store();
     let record = store
@@ -123,5 +145,11 @@ fn lists_network_category_records() {
             .iter()
             .any(|record| record.intent == "show_ip_config"),
         "show_ip_config should be listed under network"
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.intent == "show_dns_config"),
+        "show_dns_config should be listed under network"
     );
 }

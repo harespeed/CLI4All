@@ -40,6 +40,18 @@ fn preserves_arguments_when_translating_dir_with_path() {
 }
 
 #[test]
+fn preserves_quoted_path_when_translating_dir() {
+    let decision = shell_decision(r#"dir "Program Files""#, "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("list_files"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some(r#"ls "Program Files""#)
+    );
+    assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
 fn maps_unix_listing_to_powershell_on_windows() {
     let decision = shell_decision("ls -la", "windows");
 
@@ -108,6 +120,18 @@ fn deleting_a_file_requires_confirmation() {
 }
 
 #[test]
+fn preserves_two_quoted_paths_when_copying() {
+    let decision = shell_decision(r#"copy "old name.txt" "new name.txt""#, "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("copy_file"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some(r#"cp "old name.txt" "new name.txt""#)
+    );
+    assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
 fn taskkill_requires_confirmation() {
     let decision = shell_decision("taskkill /PID 123 /F", "macos");
 
@@ -154,4 +178,16 @@ fn format_drive_is_blocked() {
 
     assert_eq!(decision.risk_level, "destructive");
     assert_eq!(decision.action, ShellAction::Block);
+}
+
+#[test]
+fn preserves_quoted_pattern_and_file_for_text_search() {
+    let decision = shell_decision(r#"findstr "error code" "app log.txt""#, "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("search_text"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some(r#"grep "error code" "app log.txt""#)
+    );
+    assert_eq!(decision.action, ShellAction::Execute);
 }

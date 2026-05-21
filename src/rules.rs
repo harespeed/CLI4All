@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use regex::Regex;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -56,11 +57,16 @@ fn validate_patterns(rule_name: &str, patterns: &[String]) -> Result<()> {
 }
 
 pub fn build_command_regex(command: &str) -> Result<Regex> {
-    let mut parts = Vec::new();
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    let mut parts = Vec::with_capacity(tokens.len());
 
-    for token in command.split_whitespace() {
+    for (index, token) in tokens.iter().enumerate() {
         if let Some(placeholder) = placeholder_name(token) {
-            parts.push(format!(r"(?P<{placeholder}>\S+)"));
+            let is_last = index + 1 == tokens.len();
+            parts.push(format!(
+                r"(?P<{placeholder}>{})",
+                placeholder_capture_pattern(*token, is_last)
+            ));
         } else {
             parts.push(regex::escape(token));
         }
@@ -71,5 +77,31 @@ pub fn build_command_regex(command: &str) -> Result<Regex> {
 }
 
 pub fn placeholder_name(token: &str) -> Option<&str> {
-    token.strip_prefix('<')?.strip_suffix('>')
+    let inner = token.strip_prefix('<')?.strip_suffix('>')?;
+    Some(inner.strip_suffix("...").unwrap_or(inner))
+}
+
+pub fn apply_template_captures(template: &str, captures: &BTreeMap<String, String>) -> String {
+    template
+        .split_whitespace()
+        .map(|token| {
+            if let Some(name) = placeholder_name(token) {
+                captures
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| token.to_string())
+            } else {
+                token.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn placeholder_capture_pattern(token: &str, is_last: bool) -> &'static str {
+    if token.contains("...") || is_last {
+        r#""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|.+?"#
+    } else {
+        r#""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\S+"#
+    }
 }

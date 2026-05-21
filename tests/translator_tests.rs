@@ -30,6 +30,14 @@ fn translates_windows_dir_with_path_to_macos_ls_path() {
 }
 
 #[test]
+fn translates_windows_dir_with_quoted_path_to_macos_ls_path() {
+    assert_eq!(
+        suggestions_for(r#"dir "Program Files""#, "macos"),
+        vec![r#"ls "Program Files""#.to_string(), "ls".to_string()]
+    );
+}
+
+#[test]
 fn translates_windows_cls_to_macos_clear() {
     assert_eq!(suggestions_for("cls", "macos"), vec!["clear"]);
 }
@@ -53,10 +61,26 @@ fn translates_windows_type_file_to_macos_cat_file() {
 }
 
 #[test]
+fn translates_copy_with_quoted_paths_to_macos_cp() {
+    assert_eq!(
+        suggestions_for(r#"copy "old name.txt" "new name.txt""#, "macos"),
+        vec![r#"cp "old name.txt" "new name.txt""#]
+    );
+}
+
+#[test]
 fn translates_findstr_to_grep_on_macos() {
     assert_eq!(
         suggestions_for("findstr error log.txt", "macos"),
         vec!["grep error log.txt"]
+    );
+}
+
+#[test]
+fn translates_findstr_with_quoted_pattern_and_file() {
+    assert_eq!(
+        suggestions_for(r#"findstr "error code" "app log.txt""#, "macos"),
+        vec![r#"grep "error code" "app log.txt""#]
     );
 }
 
@@ -112,6 +136,14 @@ fn translates_open_current_directory_to_windows_powershell() {
 }
 
 #[test]
+fn translates_open_quoted_path_to_windows_powershell() {
+    assert_eq!(
+        first_suggestion_for(r#"open "My Folder""#, "windows"),
+        r#"Start-Process "My Folder""#
+    );
+}
+
+#[test]
 fn translates_grep_to_select_string_on_windows() {
     assert_eq!(
         first_suggestion_for("grep error log.txt", "windows"),
@@ -148,5 +180,13 @@ fn translates_mkdir_with_argument() {
     assert_eq!(
         suggestions_for("mkdir test-folder", "macos"),
         vec!["mkdir test-folder"]
+    );
+}
+
+#[test]
+fn translates_clip_with_quoted_text_to_macos_pbcopy() {
+    assert_eq!(
+        suggestions_for(r#"clip "hello world""#, "macos"),
+        vec![r#"printf %s "hello world" | pbcopy"#]
     );
 }
