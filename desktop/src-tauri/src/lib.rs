@@ -8,10 +8,13 @@ use cli4all::translator::display_platform_name;
 use pty::PtySession;
 use serde::Serialize;
 use std::env;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, Manager, State};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const CONFIRMATION_PROMPT: &str = "Execute this command? [y/N]";
 const BUILTIN_SOURCE: &str = "CLI4ALL Built-in";
@@ -33,6 +36,13 @@ struct PendingConfirmation {
     clear_display: bool,
 }
 
+#[derive(Clone)]
+struct RunningTranslateCommand {
+    command_id: u64,
+    child: Arc<Mutex<Child>>,
+    interrupted: Arc<AtomicBool>,
+}
+
 struct TranslateState {
     initial_cwd: PathBuf,
     cwd: PathBuf,
@@ -41,8 +51,10 @@ struct TranslateState {
 
 struct RuntimeState {
     next_session_id: u64,
+    next_translate_command_id: u64,
     active_session: Option<ActiveSession>,
     pending_confirmation: Option<PendingConfirmation>,
+    running_translate_command: Option<RunningTranslateCommand>,
     translate: TranslateState,
 }
 
@@ -73,6 +85,7 @@ struct SubmitTerminalLineResponse {
     exit_status: Option<i32>,
     current_dir: String,
     clear_display: bool,
+    stream_command_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,6 +106,30 @@ struct ConfirmationResolutionResponse {
     exit_status: Option<i32>,
     current_dir: String,
     clear_display: bool,
+    stream_command_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslateOutputEvent {
+    command_id: u64,
+    stream: String,
+    text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslateExitEvent {
+    command_id: u64,
+    exit_status: Option<i32>,
+    interrupted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InterruptTranslateCommandResponse {
+    command_id: Option<u64>,
+    interrupted: bool,
 }
 
 #[tauri::command]
@@ -175,6 +212,7 @@ fn stop_pty_session(state: State<'_, DesktopState>) -> Result<(), String> {
 
 #[tauri::command]
 fn submit_terminal_line(
+    app: AppHandle,
     input: String,
     state: State<'_, DesktopState>,
 ) -> Result<SubmitTerminalLineResponse, String> {
@@ -182,6 +220,9 @@ fn submit_terminal_line(
         let runtime = lock_runtime(&state)?;
         if runtime.pending_confirmation.is_some() {
             return Err("a confirmation is already pending".to_string());
+        }
+        if runtime.running_translate_command.is_some() {
+            return Err("a translate command is already running".to_string());
         }
     }
 
@@ -224,6 +265,7 @@ fn submit_terminal_line(
         exit_status: None,
         current_dir: display_path(&current_dir),
         clear_display: false,
+        stream_command_id: None,
     };
 
     match decision.action {
@@ -237,11 +279,14 @@ fn submit_terminal_line(
                 response.clear_display = true;
                 response.exit_status = Some(0);
             } else {
-                let result =
-                    execute_translated_command(state.current_platform, translated_command, &current_dir)?;
-                response.stdout = result.stdout;
-                response.stderr = result.stderr;
-                response.exit_status = result.exit_status;
+                let command_id = start_translate_command(
+                    &app,
+                    &state,
+                    state.current_platform,
+                    translated_command,
+                    &current_dir,
+                )?;
+                response.stream_command_id = Some(command_id);
             }
         }
         ShellAction::Confirm => {
@@ -262,6 +307,7 @@ fn submit_terminal_line(
 
 #[tauri::command]
 fn resolve_confirmation(
+    app: AppHandle,
     confirmed: bool,
     state: State<'_, DesktopState>,
 ) -> Result<ConfirmationResolutionResponse, String> {
@@ -285,9 +331,12 @@ fn resolve_confirmation(
                 exit_status: Some(0),
                 current_dir: display_path(&current_dir),
                 clear_display: true,
+                stream_command_id: None,
             })
         } else {
-            let result = execute_translated_command(
+            let command_id = start_translate_command(
+                &app,
+                &state,
                 state.current_platform,
                 &pending.translated_command,
                 &current_dir,
@@ -296,11 +345,12 @@ fn resolve_confirmation(
                 action: ConfirmationResolutionAction::Execute,
                 translated_command: Some(pending.translated_command),
                 message: "Translated command executed.".to_string(),
-                stdout: result.stdout,
-                stderr: result.stderr,
-                exit_status: result.exit_status,
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_status: None,
                 current_dir: display_path(&current_dir),
                 clear_display: false,
+                stream_command_id: Some(command_id),
             })
         }
     } else {
@@ -313,7 +363,40 @@ fn resolve_confirmation(
             exit_status: None,
             current_dir: display_path(&current_dir),
             clear_display: false,
+            stream_command_id: None,
         })
+    }
+}
+
+#[tauri::command]
+fn interrupt_translate_command(
+    state: State<'_, DesktopState>,
+) -> Result<InterruptTranslateCommandResponse, String> {
+    let running = {
+        let runtime = lock_runtime(&state)?;
+        runtime.running_translate_command.clone()
+    };
+
+    let Some(running) = running else {
+        return Ok(InterruptTranslateCommandResponse {
+            command_id: None,
+            interrupted: false,
+        });
+    };
+
+    running.interrupted.store(true, Ordering::SeqCst);
+    let kill_result = running
+        .child
+        .lock()
+        .map_err(|_| "translate child process state is poisoned".to_string())?
+        .kill();
+
+    match kill_result {
+        Ok(_) => Ok(InterruptTranslateCommandResponse {
+            command_id: Some(running.command_id),
+            interrupted: true,
+        }),
+        Err(error) => Err(format!("failed to interrupt translate command: {error}")),
     }
 }
 
@@ -346,8 +429,10 @@ pub fn run() {
                 risk_catalog,
                 runtime: Mutex::new(RuntimeState {
                     next_session_id: 0,
+                    next_translate_command_id: 0,
                     active_session: None,
                     pending_confirmation: None,
+                    running_translate_command: None,
                     translate: TranslateState {
                         initial_cwd: initial_cwd.clone(),
                         cwd: initial_cwd,
@@ -364,7 +449,8 @@ pub fn run() {
             resize_pty,
             stop_pty_session,
             submit_terminal_line,
-            resolve_confirmation
+            resolve_confirmation,
+            interrupt_translate_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running CLI4ALL desktop");
@@ -391,6 +477,58 @@ fn active_session(state: &State<'_, DesktopState>) -> Result<ActiveSession, Stri
         }
         None => Err("no PTY session is running".to_string()),
     }
+}
+
+fn start_translate_command(
+    app: &AppHandle,
+    state: &State<'_, DesktopState>,
+    current_platform: Platform,
+    translated_command: &str,
+    current_dir: &Path,
+) -> Result<u64, String> {
+    if translated_command.contains('\n') || translated_command.contains('\r') {
+        return Err("Translate Mode only supports single-line commands".to_string());
+    }
+
+    let mut command = build_translate_command(current_platform, translated_command, current_dir);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("failed to spawn translated command: {error}"))?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let child = Arc::new(Mutex::new(child));
+    let interrupted = Arc::new(AtomicBool::new(false));
+
+    let (command_id, running) = {
+        let mut runtime = lock_runtime(state)?;
+        if runtime.running_translate_command.is_some() {
+            return Err("a translate command is already running".to_string());
+        }
+        runtime.next_translate_command_id += 1;
+        let command_id = runtime.next_translate_command_id;
+        let running = RunningTranslateCommand {
+            command_id,
+            child: Arc::clone(&child),
+            interrupted: Arc::clone(&interrupted),
+        };
+        runtime.running_translate_command = Some(running.clone());
+        (command_id, running)
+    };
+
+    let app = app.clone();
+
+    if let Some(stdout) = stdout {
+        spawn_translate_stream_reader(app.clone(), command_id, "stdout", stdout);
+    }
+
+    if let Some(stderr) = stderr {
+        spawn_translate_stream_reader(app.clone(), command_id, "stderr", stderr);
+    }
+
+    spawn_translate_waiter(app, command_id, running);
+    Ok(command_id)
 }
 
 fn submit_message(action: &ShellAction) -> Option<String> {
@@ -430,6 +568,7 @@ fn handle_translate_builtin(
             exit_status: Some(0),
             current_dir,
             clear_display: false,
+            stream_command_id: None,
         }));
     }
 
@@ -463,6 +602,7 @@ fn handle_translate_builtin(
                 exit_status: Some(0),
                 current_dir: display_path(&runtime.translate.cwd),
                 clear_display: false,
+                stream_command_id: None,
             }))
         }
         Err(error) => Ok(Some(SubmitTerminalLineResponse {
@@ -481,60 +621,105 @@ fn handle_translate_builtin(
             exit_status: Some(1),
             current_dir: display_path(&current_dir_before),
             clear_display: false,
+            stream_command_id: None,
         })),
     }
 }
 
-fn execute_translated_command(
+fn build_translate_command(
     current_platform: Platform,
     translated_command: &str,
     current_dir: &Path,
-) -> Result<TranslateExecutionResult, String> {
-    if translated_command.contains('\n') || translated_command.contains('\r') {
-        return Err("Translate Mode only supports single-line commands".to_string());
-    }
-
-    let output = match current_platform {
-        Platform::Macos => Command::new("/bin/zsh")
-            .args(["-lc", translated_command])
-            .current_dir(current_dir)
-            .output()
-            .map_err(|error| format!("failed to execute translated command with /bin/zsh: {error}"))?,
-        Platform::Ubuntu => Command::new("/bin/bash")
-            .args(["-lc", translated_command])
-            .current_dir(current_dir)
-            .output()
-            .map_err(|error| format!("failed to execute translated command with /bin/bash: {error}"))?,
-        Platform::Windows => execute_windows_command(translated_command, current_dir)?,
+) -> Command {
+    let mut command = match current_platform {
+        Platform::Macos => {
+            let mut command = Command::new("/bin/zsh");
+            command.args(["-lc", translated_command]);
+            command
+        }
+        Platform::Ubuntu => {
+            let mut command = Command::new("/bin/bash");
+            command.args(["-lc", translated_command]);
+            command
+        }
+        Platform::Windows => {
+            let mut command = Command::new("powershell.exe");
+            command.args(["-NoProfile", "-Command", translated_command]);
+            command
+        }
     };
-
-    Ok(TranslateExecutionResult {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        exit_status: output.status.code(),
-    })
+    command.current_dir(current_dir);
+    command
 }
 
-fn execute_windows_command(
-    translated_command: &str,
-    current_dir: &Path,
-) -> Result<std::process::Output, String> {
-    match Command::new("powershell.exe")
-        .args(["-NoProfile", "-Command", translated_command])
-        .current_dir(current_dir)
-        .output()
-    {
-        Ok(output) => Ok(output),
-        Err(primary_error) => Command::new("cmd.exe")
-            .args(["/C", translated_command])
-            .current_dir(current_dir)
-            .output()
-            .map_err(|fallback_error| {
-                format!(
-                    "failed to execute translated command with PowerShell ({primary_error}) or cmd.exe ({fallback_error})"
-                )
-            }),
-    }
+fn spawn_translate_stream_reader<R>(
+    app: AppHandle,
+    command_id: u64,
+    stream: &'static str,
+    reader: R,
+) where
+    R: std::io::Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut buffer = String::new();
+
+        loop {
+            buffer.clear();
+            match reader.read_line(&mut buffer) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let _ = app.emit(
+                        "translate-output",
+                        TranslateOutputEvent {
+                            command_id,
+                            stream: stream.to_string(),
+                            text: buffer.clone(),
+                        },
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+fn spawn_translate_waiter(
+    app: AppHandle,
+    command_id: u64,
+    running: RunningTranslateCommand,
+) {
+    thread::spawn(move || {
+        let exit_status = running
+            .child
+            .lock()
+            .ok()
+            .and_then(|mut child| child.wait().ok())
+            .and_then(|status| status.code());
+        let interrupted = running.interrupted.load(Ordering::SeqCst);
+
+        if let Some(state) = app.try_state::<DesktopState>() {
+            if let Ok(mut runtime) = state.runtime.lock() {
+                if runtime
+                    .running_translate_command
+                    .as_ref()
+                    .map(|active| active.command_id == command_id)
+                    .unwrap_or(false)
+                {
+                    runtime.running_translate_command = None;
+                }
+            }
+        }
+
+        let _ = app.emit(
+            "translate-exit",
+            TranslateExitEvent {
+                command_id,
+                exit_status,
+                interrupted,
+            },
+        );
+    });
 }
 
 fn initial_translate_cwd(home_dir: Option<PathBuf>) -> PathBuf {
@@ -639,12 +824,6 @@ fn home_dir() -> Option<PathBuf> {
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
         })
-}
-
-struct TranslateExecutionResult {
-    stdout: String,
-    stderr: String,
-    exit_status: Option<i32>,
 }
 
 #[cfg(test)]

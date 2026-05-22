@@ -34,6 +34,7 @@ type SubmitTerminalLineResponse = {
   exitStatus: number | null;
   currentDir: string;
   clearDisplay: boolean;
+  streamCommandId: number | null;
 };
 
 type ConfirmationResolutionResponse = {
@@ -45,6 +46,24 @@ type ConfirmationResolutionResponse = {
   exitStatus: number | null;
   currentDir: string;
   clearDisplay: boolean;
+  streamCommandId: number | null;
+};
+
+type TranslateOutputEvent = {
+  commandId: number;
+  stream: "stdout" | "stderr";
+  text: string;
+};
+
+type TranslateExitEvent = {
+  commandId: number;
+  exitStatus: number | null;
+  interrupted: boolean;
+};
+
+type InterruptTranslateCommandResponse = {
+  commandId: number | null;
+  interrupted: boolean;
 };
 
 type PtyOutputEvent = {
@@ -182,6 +201,8 @@ export default function App() {
   const confirmationBufferRef = useRef("");
   const localPromptVisibleRef = useRef(false);
   const awaitingConfirmationRef = useRef(false);
+  const translateCommandRunningRef = useRef(false);
+  const activeTranslateCommandIdRef = useRef<number | null>(null);
   const hiddenPtyOutputRef = useRef("");
   const destroyedRef = useRef(false);
   const translateCwdRef = useRef("");
@@ -526,6 +547,8 @@ export default function App() {
       confirmationBufferRef.current = "";
       localPromptVisibleRef.current = false;
       awaitingConfirmationRef.current = false;
+      translateCommandRunningRef.current = false;
+      activeTranslateCommandIdRef.current = null;
       pendingConfirmationDetailsRef.current = null;
       translateHistoryIndexRef.current = null;
       translateHistoryDraftRef.current = "";
@@ -694,6 +717,68 @@ export default function App() {
       showTranslatePrompt(false);
     };
 
+    const writeTranslateStreamChunk = (
+      stream: "stdout" | "stderr",
+      text: string,
+    ) => {
+      const normalized = text.replace(/\r?\n/g, "\r\n");
+      writeTerminal(
+        styleSegments([
+          {
+            text: normalized,
+            color:
+              stream === "stderr"
+                ? appearanceRef.current.stderrColor
+                : appearanceRef.current.stdoutColor,
+          },
+        ]),
+        "if-bottom",
+      );
+    };
+
+    const handleTranslateCommandExit = (event: TranslateExitEvent) => {
+      if (event.commandId !== activeTranslateCommandIdRef.current) {
+        return;
+      }
+
+      translateCommandRunningRef.current = false;
+      activeTranslateCommandIdRef.current = null;
+
+      if (event.interrupted) {
+        writeStyledLine(
+          [{ text: "Command interrupted.", color: appearanceRef.current.noticeColor }],
+          "always",
+        );
+        showTranslatePrompt(false);
+        return;
+      }
+
+      if (detailModeRef.current === "verbose") {
+        printVerboseSectionFooter(
+          "------------------------------------------------",
+          appearanceRef.current.infoColor,
+        );
+        printExecutionVerbose("", "", event.exitStatus);
+        showTranslatePrompt(false);
+        return;
+      }
+
+      if (event.exitStatus !== null && event.exitStatus !== 0) {
+        writeStyledLine(
+          [
+            {
+              text: `✗ Exit status: ${event.exitStatus}`,
+              color: appearanceRef.current.errorColor,
+              bold: true,
+            },
+          ],
+          "always",
+        );
+      }
+
+      showTranslatePrompt(false);
+    };
+
     const handleSubmitResponse = (response: SubmitTerminalLineResponse) => {
       translateCwdRef.current = response.currentDir;
 
@@ -708,7 +793,23 @@ export default function App() {
 
       switch (response.action) {
         case "execute":
-          if (detailModeRef.current === "verbose") {
+          if (response.streamCommandId !== null) {
+            translateCommandRunningRef.current = true;
+            activeTranslateCommandIdRef.current = response.streamCommandId;
+            if (detailModeRef.current === "verbose") {
+              printVerboseSectionHeader(
+                "Command Output",
+                appearanceRef.current.infoColor,
+              );
+            } else if (shouldPrintCompactTranslationHint(response)) {
+              printTranslationHint(
+                response.detectedSource,
+                response.originalCommand,
+                response.currentOs,
+                response.translatedCommand ?? "unavailable",
+              );
+            }
+          } else if (detailModeRef.current === "verbose") {
             printExecutionVerbose(
               response.stdout,
               response.stderr,
@@ -866,6 +967,12 @@ export default function App() {
           );
         }
 
+        if (response.streamCommandId !== null) {
+          translateCommandRunningRef.current = true;
+          activeTranslateCommandIdRef.current = response.streamCommandId;
+          return;
+        }
+
         printExecutionClean(response.stdout, response.stderr, response.exitStatus);
         showTranslatePrompt(false);
       } catch (error) {
@@ -951,6 +1058,25 @@ export default function App() {
             }
             return;
         }
+      }
+
+      if (translateCommandRunningRef.current) {
+        if (data === "\u0003") {
+          writeStyledLine(
+            [{ text: "^C", color: appearanceRef.current.warningColor, bold: true }],
+            "always",
+          );
+          void invoke<InterruptTranslateCommandResponse>(
+            "interrupt_translate_command",
+          ).catch((error) => {
+            printNotice(
+              "CLI4ALL Notice",
+              [`Backend error: ${String(error)}`],
+              `? Backend error: ${String(error)}`,
+            );
+          });
+        }
+        return;
       }
 
       switch (data) {
@@ -1085,6 +1211,8 @@ export default function App() {
 
     let unlistenOutput: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
+    let unlistenTranslateOutput: (() => void) | undefined;
+    let unlistenTranslateExit: (() => void) | undefined;
 
     void listen<PtyOutputEvent>("pty-output", (event) => {
       if (destroyedRef.current) {
@@ -1132,6 +1260,27 @@ export default function App() {
       unlistenExit = unlisten;
     });
 
+    void listen<TranslateOutputEvent>("translate-output", (event) => {
+      if (destroyedRef.current) {
+        return;
+      }
+      if (event.payload.commandId !== activeTranslateCommandIdRef.current) {
+        return;
+      }
+      writeTranslateStreamChunk(event.payload.stream, event.payload.text);
+    }).then((unlisten) => {
+      unlistenTranslateOutput = unlisten;
+    });
+
+    void listen<TranslateExitEvent>("translate-exit", (event) => {
+      if (destroyedRef.current) {
+        return;
+      }
+      handleTranslateCommandExit(event.payload);
+    }).then((unlisten) => {
+      unlistenTranslateExit = unlisten;
+    });
+
     void startSession();
 
     return () => {
@@ -1142,6 +1291,8 @@ export default function App() {
       void invoke("stop_pty_session").catch(() => undefined);
       unlistenOutput?.();
       unlistenExit?.();
+      unlistenTranslateOutput?.();
+      unlistenTranslateExit?.();
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
