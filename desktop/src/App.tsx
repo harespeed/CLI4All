@@ -66,6 +66,17 @@ type InterruptTranslateCommandResponse = {
   interrupted: boolean;
 };
 
+type CatalogSuggestion = {
+  commandTemplate: string;
+  intentId: string;
+  description: string;
+  sourceShell: string;
+  targetShell: string;
+  risk: "low" | "medium" | "high" | "destructive";
+  previewTranslation: string | null;
+  score: number;
+};
+
 type PtyOutputEvent = {
   sessionId: number;
   data: string;
@@ -151,6 +162,8 @@ const BUILTIN_SOURCE = "CLI4ALL Built-in";
 const APPEARANCE_STORAGE_KEY = "cli4all.desktop.appearance";
 const TRANSLATE_HISTORY_STORAGE_KEY = "cli4all.translate.history.v1";
 const TRANSLATE_HISTORY_LIMIT = 500;
+const CATALOG_SUGGESTION_LIMIT = 5;
+const CATALOG_SUGGESTION_DEBOUNCE_MS = 90;
 const FONT_FAMILIES = [
   "Menlo",
   "Monaco",
@@ -213,6 +226,11 @@ export default function App() {
   const translateHistoryRef = useRef<string[]>([]);
   const translateHistoryIndexRef = useRef<number | null>(null);
   const translateHistoryDraftRef = useRef("");
+  const catalogSuggestionsRef = useRef<CatalogSuggestion[]>([]);
+  const catalogSuggestionIndexRef = useRef(0);
+  const catalogSearchTimerRef = useRef<number | null>(null);
+  const catalogSearchSequenceRef = useRef(0);
+  const catalogSuggestionsDismissedRef = useRef(false);
 
   const [mode, setMode] = useState<TerminalMode>("native");
   const [detailMode, setDetailMode] = useState<DetailMode>("clean");
@@ -224,6 +242,10 @@ export default function App() {
   const [translateHistory, setTranslateHistory] = useState<string[]>(
     loadTranslateHistory,
   );
+  const [catalogSuggestions, setCatalogSuggestions] = useState<CatalogSuggestion[]>(
+    [],
+  );
+  const [catalogSuggestionIndex, setCatalogSuggestionIndex] = useState(0);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -240,6 +262,26 @@ export default function App() {
   useEffect(() => {
     translateHistoryRef.current = translateHistory;
   }, [translateHistory]);
+
+  useEffect(() => {
+    catalogSuggestionsRef.current = catalogSuggestions;
+  }, [catalogSuggestions]);
+
+  useEffect(() => {
+    catalogSuggestionIndexRef.current = catalogSuggestionIndex;
+  }, [catalogSuggestionIndex]);
+
+  const resetCatalogSuggestionState = () => {
+    if (catalogSearchTimerRef.current !== null) {
+      window.clearTimeout(catalogSearchTimerRef.current);
+      catalogSearchTimerRef.current = null;
+    }
+    catalogSearchSequenceRef.current += 1;
+    catalogSuggestionsDismissedRef.current = false;
+    catalogSuggestionIndexRef.current = 0;
+    setCatalogSuggestionIndex(0);
+    setCatalogSuggestions([]);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -552,6 +594,8 @@ export default function App() {
       pendingConfirmationDetailsRef.current = null;
       translateHistoryIndexRef.current = null;
       translateHistoryDraftRef.current = "";
+      catalogSuggestionsDismissedRef.current = false;
+      clearCatalogSuggestions();
     };
 
     const renderTranslatePromptLine = (prependNewline: boolean) => {
@@ -613,15 +657,84 @@ export default function App() {
 
     const redrawTranslatePromptLine = () => {
       syncTranslateGhost();
+      if (translateGhostRef.current.length > 0) {
+        clearCatalogSuggestions();
+      }
       if (localPromptVisibleRef.current) {
         renderTranslatePromptLine(false);
       } else {
         showTranslatePrompt(false);
       }
+      scheduleCatalogSuggestionSearch();
     };
 
     const saveTranslateHistoryEntry = (input: string) => {
       setTranslateHistory((current) => pushTranslateHistoryEntry(current, input));
+    };
+
+    const clearCatalogSuggestions = () => {
+      if (catalogSearchTimerRef.current !== null) {
+        window.clearTimeout(catalogSearchTimerRef.current);
+        catalogSearchTimerRef.current = null;
+      }
+      catalogSearchSequenceRef.current += 1;
+      catalogSuggestionIndexRef.current = 0;
+      setCatalogSuggestionIndex(0);
+      setCatalogSuggestions([]);
+    };
+
+    const scheduleCatalogSuggestionSearch = () => {
+      if (
+        modeRef.current !== "translate" ||
+        awaitingConfirmationRef.current ||
+        translateCommandRunningRef.current ||
+        translateHistoryIndexRef.current !== null
+      ) {
+        clearCatalogSuggestions();
+        return;
+      }
+
+      const query = translateBufferRef.current.trim();
+      if (
+        query.length === 0 ||
+        translateGhostRef.current.length > 0 ||
+        catalogSuggestionsDismissedRef.current
+      ) {
+        clearCatalogSuggestions();
+        return;
+      }
+
+      if (catalogSearchTimerRef.current !== null) {
+        window.clearTimeout(catalogSearchTimerRef.current);
+      }
+
+      const sequence = catalogSearchSequenceRef.current + 1;
+      catalogSearchSequenceRef.current = sequence;
+      catalogSearchTimerRef.current = window.setTimeout(() => {
+        catalogSearchTimerRef.current = null;
+        void invoke<CatalogSuggestion[]>("search_catalog_suggestions", {
+          query,
+          limit: CATALOG_SUGGESTION_LIMIT,
+        })
+          .then((results) => {
+            if (sequence !== catalogSearchSequenceRef.current) {
+              return;
+            }
+
+            setCatalogSuggestions(results);
+            const nextIndex = results.length > 0 ? 0 : 0;
+            catalogSuggestionIndexRef.current = nextIndex;
+            setCatalogSuggestionIndex(nextIndex);
+          })
+          .catch(() => {
+            if (sequence !== catalogSearchSequenceRef.current) {
+              return;
+            }
+            setCatalogSuggestions([]);
+            catalogSuggestionIndexRef.current = 0;
+            setCatalogSuggestionIndex(0);
+          });
+      }, CATALOG_SUGGESTION_DEBOUNCE_MS);
     };
 
     const navigateTranslateHistory = (direction: "up" | "down") => {
@@ -654,6 +767,8 @@ export default function App() {
       if (translateHistoryIndexRef.current !== null) {
         translateBufferRef.current = history[translateHistoryIndexRef.current] ?? "";
       }
+      catalogSuggestionsDismissedRef.current = false;
+      clearCatalogSuggestions();
       redrawTranslatePromptLine();
     };
 
@@ -665,6 +780,43 @@ export default function App() {
       translateBufferRef.current += translateGhostRef.current;
       translateGhostRef.current = "";
       translateHistoryIndexRef.current = null;
+      catalogSuggestionsDismissedRef.current = false;
+      clearCatalogSuggestions();
+      redrawTranslatePromptLine();
+      return true;
+    };
+
+    const moveCatalogSuggestionSelection = (direction: 1 | -1) => {
+      const suggestions = catalogSuggestionsRef.current;
+      if (suggestions.length === 0) {
+        return;
+      }
+
+      const nextIndex =
+        (catalogSuggestionIndexRef.current + direction + suggestions.length) %
+        suggestions.length;
+      catalogSuggestionIndexRef.current = nextIndex;
+      setCatalogSuggestionIndex(nextIndex);
+    };
+
+    const acceptSelectedCatalogSuggestion = () => {
+      const suggestions = catalogSuggestionsRef.current;
+      if (suggestions.length === 0) {
+        return false;
+      }
+
+      const selected =
+        suggestions[catalogSuggestionIndexRef.current] ?? suggestions[0];
+      if (!selected) {
+        return false;
+      }
+
+      translateBufferRef.current = selected.commandTemplate;
+      translateGhostRef.current = "";
+      translateHistoryIndexRef.current = null;
+      translateHistoryDraftRef.current = "";
+      catalogSuggestionsDismissedRef.current = false;
+      clearCatalogSuggestions();
       redrawTranslatePromptLine();
       return true;
     };
@@ -743,6 +895,7 @@ export default function App() {
 
       translateCommandRunningRef.current = false;
       activeTranslateCommandIdRef.current = null;
+      clearCatalogSuggestions();
 
       if (event.interrupted) {
         writeStyledLine(
@@ -781,6 +934,7 @@ export default function App() {
 
     const handleSubmitResponse = (response: SubmitTerminalLineResponse) => {
       translateCwdRef.current = response.currentDir;
+      clearCatalogSuggestions();
 
       if (response.clearDisplay) {
         terminal.clear();
@@ -880,6 +1034,7 @@ export default function App() {
       translateHistoryIndexRef.current = null;
       translateHistoryDraftRef.current = "";
       localPromptVisibleRef.current = false;
+      clearCatalogSuggestions();
       writeTerminal("\r\n", "always");
 
       if (input.trim().length === 0) {
@@ -915,6 +1070,7 @@ export default function App() {
       awaitingConfirmationRef.current = false;
       localPromptVisibleRef.current = false;
       pendingConfirmationDetailsRef.current = null;
+      clearCatalogSuggestions();
       writeTerminal("\r\n", "always");
 
       try {
@@ -1088,26 +1244,37 @@ export default function App() {
           terminal.scrollToBottom();
           navigateTranslateHistory("down");
           return;
+        case "\u0010":
+          moveCatalogSuggestionSelection(-1);
+          return;
+        case "\u000E":
+          moveCatalogSuggestionSelection(1);
+          return;
         case "\t":
           terminal.scrollToBottom();
-          acceptTranslateGhostSuggestion();
+          if (!acceptTranslateGhostSuggestion()) {
+            acceptSelectedCatalogSuggestion();
+          }
           return;
         case "\u001b[C":
-          if (acceptTranslateGhostSuggestion()) {
+          if (
+            acceptTranslateGhostSuggestion() ||
+            (catalogSuggestionsRef.current.length > 0 &&
+              translateBufferRef.current.length > 0 &&
+              (catalogSuggestionsRef.current[catalogSuggestionIndexRef.current]
+                ?.commandTemplate
+                .toLowerCase()
+                .startsWith(translateBufferRef.current.toLowerCase()) ??
+                false) &&
+              acceptSelectedCatalogSuggestion())
+          ) {
             terminal.scrollToBottom();
           }
           return;
         case "\u001b":
-          if (
-            translateBufferRef.current.length > 0 ||
-            translateGhostRef.current.length > 0
-          ) {
-            translateBufferRef.current = "";
-            translateGhostRef.current = "";
-            translateHistoryIndexRef.current = null;
-            translateHistoryDraftRef.current = "";
-            redrawTranslatePromptLine();
-          }
+          catalogSuggestionsDismissedRef.current = true;
+          clearCatalogSuggestions();
+          redrawTranslatePromptLine();
           return;
         case "\r":
           void submitTranslateLine();
@@ -1117,7 +1284,10 @@ export default function App() {
             terminal.scrollToBottom();
             translateBufferRef.current = translateBufferRef.current.slice(0, -1);
             translateHistoryIndexRef.current = null;
+            catalogSuggestionsDismissedRef.current = false;
             redrawTranslatePromptLine();
+          } else {
+            clearCatalogSuggestions();
           }
           return;
         case "\u0003":
@@ -1127,6 +1297,7 @@ export default function App() {
             translateHistoryIndexRef.current = null;
             translateHistoryDraftRef.current = "";
             localPromptVisibleRef.current = false;
+            clearCatalogSuggestions();
             writeStyledLine(
               [{ text: "^C", color: appearanceRef.current.warningColor, bold: true }],
               "always",
@@ -1148,6 +1319,7 @@ export default function App() {
 
           translateBufferRef.current += data;
           translateHistoryIndexRef.current = null;
+          catalogSuggestionsDismissedRef.current = false;
           redrawTranslatePromptLine();
       }
     };
@@ -1285,6 +1457,10 @@ export default function App() {
 
     return () => {
       destroyedRef.current = true;
+      if (catalogSearchTimerRef.current !== null) {
+        window.clearTimeout(catalogSearchTimerRef.current);
+        catalogSearchTimerRef.current = null;
+      }
       dataDisposable.dispose();
       resizeObserver.disconnect();
       window.removeEventListener("resize", handleWindowResize);
@@ -1300,7 +1476,7 @@ export default function App() {
     };
   }, []);
 
-  const toggleMode = async () => {
+    const toggleMode = async () => {
     const terminal = terminalRef.current;
     if (!terminal) {
       return;
@@ -1316,6 +1492,7 @@ export default function App() {
     pendingConfirmationDetailsRef.current = null;
     translateHistoryIndexRef.current = null;
     translateHistoryDraftRef.current = "";
+    resetCatalogSuggestionState();
 
     const nextMode: TerminalMode =
       modeRef.current === "native" ? "translate" : "native";
@@ -1369,6 +1546,7 @@ export default function App() {
     pendingConfirmationDetailsRef.current = null;
     translateHistoryIndexRef.current = null;
     translateHistoryDraftRef.current = "";
+    resetCatalogSuggestionState();
 
     fitAddon.fit();
     terminal.reset();
@@ -1429,6 +1607,7 @@ export default function App() {
       pendingConfirmationDetailsRef.current = null;
       translateHistoryIndexRef.current = null;
       translateHistoryDraftRef.current = "";
+      resetCatalogSuggestionState();
       writeTerminalAndScroll(
         terminal,
         styleSegments(
@@ -1460,6 +1639,7 @@ export default function App() {
     translateGhostRef.current = "";
     translateHistoryIndexRef.current = null;
     translateHistoryDraftRef.current = "";
+    resetCatalogSuggestionState();
 
     try {
       await invoke<ConfirmationResolutionResponse>("resolve_confirmation", {
@@ -1578,6 +1758,48 @@ export default function App() {
             ref={terminalContainerRef}
             style={terminalViewportStyle}
           />
+          {mode === "translate" && catalogSuggestions.length > 0 ? (
+            <div className="catalog-suggestions" aria-live="polite">
+              {catalogSuggestions.map((suggestion, index) => (
+                <div
+                  key={`${suggestion.sourceShell}-${suggestion.commandTemplate}`}
+                  className={`catalog-suggestion-item${
+                    index === catalogSuggestionIndex
+                      ? " catalog-suggestion-item-selected"
+                      : ""
+                  }`}
+                  style={buildCatalogSuggestionItemStyle(
+                    appearance,
+                    suggestion,
+                    index === catalogSuggestionIndex,
+                  )}
+                >
+                  <div className="catalog-suggestion-line">
+                    <span className="catalog-suggestion-index">{index + 1}</span>
+                    <span className="catalog-suggestion-command">
+                      {suggestion.commandTemplate}
+                    </span>
+                    {suggestion.risk !== "low" ? (
+                      <span
+                        className="catalog-suggestion-risk"
+                        style={{
+                          color:
+                            suggestion.risk === "high"
+                              ? appearance.errorColor
+                              : appearance.warningColor,
+                        }}
+                      >
+                        {suggestion.risk}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="catalog-suggestion-meta">
+                    {formatCatalogSuggestionMeta(suggestion)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -1912,6 +2134,59 @@ function ColorSetting({
       />
     </label>
   );
+}
+
+function buildCatalogSuggestionItemStyle(
+  settings: AppearanceSettings,
+  suggestion: CatalogSuggestion,
+  selected: boolean,
+): CSSProperties {
+  const borderColor = selected
+    ? hexToRgba(settings.modeTagColor, 0.44)
+    : hexToRgba(settings.infoColor, 0.14);
+  const backgroundColor = selected
+    ? hexToRgba(settings.modeTagColor, 0.14)
+    : "rgba(5, 13, 22, 0.88)";
+
+  return {
+    borderColor,
+    backgroundColor,
+    color:
+      suggestion.risk === "high"
+        ? settings.errorColor
+        : suggestion.risk === "medium"
+          ? settings.warningColor
+          : settings.stdoutColor,
+  };
+}
+
+function formatCatalogSuggestionMeta(suggestion: CatalogSuggestion): string {
+  const parts = [
+    suggestion.intentId,
+    `${displayShellLabel(suggestion.sourceShell)} -> ${displayShellLabel(
+      suggestion.targetShell,
+    )}`,
+    suggestion.description,
+  ];
+
+  return parts.filter((value) => value.length > 0).join(" · ");
+}
+
+function displayShellLabel(shell: string): string {
+  switch (shell) {
+    case "windows_cmd":
+      return "Windows CMD";
+    case "powershell":
+      return "PowerShell";
+    case "windows":
+      return "Windows";
+    case "macos":
+      return "macOS";
+    case "ubuntu":
+      return "Ubuntu";
+    default:
+      return shell;
+  }
 }
 
 function loadAppearanceSettings(): AppearanceSettings {

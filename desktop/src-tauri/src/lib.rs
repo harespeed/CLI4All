@@ -3,10 +3,13 @@ mod pty;
 use cli4all::platform::Platform;
 use cli4all::rules::{load_command_catalog, load_risk_catalog, RiskCatalog};
 use cli4all::shell::{decide_shell_command, ShellAction};
-use cli4all::store::C4DbCommandStore;
+use cli4all::store::formats::read_source_catalog;
+use cli4all::store::{C4DbCommandStore, CommandRecord};
 use cli4all::translator::display_platform_name;
 use pty::PtySession;
 use serde::Serialize;
+use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -22,6 +25,7 @@ const BUILTIN_SOURCE: &str = "CLI4ALL Built-in";
 struct DesktopState {
     current_platform: Platform,
     command_store: C4DbCommandStore,
+    reviewed_catalog: Vec<CommandRecord>,
     risk_catalog: RiskCatalog,
     runtime: Mutex<RuntimeState>,
 }
@@ -130,6 +134,19 @@ struct TranslateExitEvent {
 struct InterruptTranslateCommandResponse {
     command_id: Option<u64>,
     interrupted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CatalogSuggestion {
+    command_template: String,
+    intent_id: String,
+    description: String,
+    source_shell: String,
+    target_shell: String,
+    risk: String,
+    preview_translation: Option<String>,
+    score: i32,
 }
 
 #[tauri::command]
@@ -400,6 +417,27 @@ fn interrupt_translate_command(
     }
 }
 
+#[tauri::command]
+fn search_catalog_suggestions(
+    query: String,
+    target_shell: Option<String>,
+    limit: Option<usize>,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<CatalogSuggestion>, String> {
+    let target_platform = target_shell
+        .as_deref()
+        .and_then(cli4all::platform::normalize_target_platform)
+        .unwrap_or(state.current_platform);
+    let limit = limit.unwrap_or(5).clamp(1, 10);
+
+    Ok(search_catalog_suggestions_internal(
+        &state.reviewed_catalog,
+        &query,
+        target_platform,
+        limit,
+    ))
+}
+
 pub fn run() {
     let current_platform =
         Platform::detect_current().expect("failed to detect the current operating system");
@@ -418,6 +456,8 @@ pub fn run() {
 
             let command_store = load_command_catalog()
                 .map_err(|error| format!("failed to load the command store: {error:#}"))?;
+            let reviewed_catalog = load_reviewed_command_catalog()
+                .map_err(|error| format!("failed to load the reviewed source catalog: {error:#}"))?;
             let risk_catalog =
                 load_risk_catalog().map_err(|error| format!("failed to load risk rules: {error:#}"))?;
             let home_dir = home_dir();
@@ -426,6 +466,7 @@ pub fn run() {
             app.manage(DesktopState {
                 current_platform,
                 command_store,
+                reviewed_catalog,
                 risk_catalog,
                 runtime: Mutex::new(RuntimeState {
                     next_session_id: 0,
@@ -450,7 +491,8 @@ pub fn run() {
             stop_pty_session,
             submit_terminal_line,
             resolve_confirmation,
-            interrupt_translate_command
+            interrupt_translate_command,
+            search_catalog_suggestions
         ])
         .run(tauri::generate_context!())
         .expect("error while running CLI4ALL desktop");
@@ -476,6 +518,195 @@ fn active_session(state: &State<'_, DesktopState>) -> Result<ActiveSession, Stri
             Err("PTY session is not running".to_string())
         }
         None => Err("no PTY session is running".to_string()),
+    }
+}
+
+fn load_reviewed_command_catalog() -> Result<Vec<CommandRecord>, String> {
+    let path = cli4all::data_paths::find_data_file("commands.source.json")
+        .map_err(|error| error.to_string())?;
+    let bytes = std::fs::read(&path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let catalog = read_source_catalog(&bytes)
+        .map_err(|error| format!("failed to parse {}: {error:#}", path.display()))?;
+    Ok(catalog.commands)
+}
+
+fn search_catalog_suggestions_internal(
+    catalog: &[CommandRecord],
+    query: &str,
+    target_platform: Platform,
+    limit: usize,
+) -> Vec<CatalogSuggestion> {
+    let normalized_query = query.trim().to_ascii_lowercase();
+    if normalized_query.is_empty() {
+        return Vec::new();
+    }
+
+    let query_tokens = normalized_query
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    let mut suggestions = Vec::new();
+
+    for record in catalog {
+        if record.risk_level == "destructive" {
+            continue;
+        }
+
+        let target_preview = record.target_commands(target_platform.key()).first().cloned();
+
+        for (source_shell, commands) in record.iter_commands() {
+            for command_template in commands {
+                let score = catalog_suggestion_score(
+                    command_template,
+                    &record.intent,
+                    &record.description,
+                    source_shell,
+                    target_platform,
+                    &record.risk_level,
+                    &query_tokens,
+                    &normalized_query,
+                );
+
+                if score <= 0 {
+                    continue;
+                }
+
+                if record.risk_level == "high"
+                    && !is_strong_catalog_match(
+                        command_template,
+                        &record.intent,
+                        &normalized_query,
+                    )
+                {
+                    continue;
+                }
+
+                let dedupe_key = format!(
+                    "{}::{}",
+                    source_shell,
+                    command_template.to_ascii_lowercase()
+                );
+                if !seen.insert(dedupe_key) {
+                    continue;
+                }
+
+                suggestions.push(CatalogSuggestion {
+                    command_template: command_template.clone(),
+                    intent_id: record.intent.clone(),
+                    description: record.description.clone(),
+                    source_shell: source_shell.to_string(),
+                    target_shell: target_platform.key().to_string(),
+                    risk: record.risk_level.clone(),
+                    preview_translation: target_preview.clone(),
+                    score,
+                });
+            }
+        }
+    }
+
+    suggestions.sort_by_key(|suggestion| {
+        (
+            Reverse(suggestion.score),
+            risk_priority(&suggestion.risk),
+            suggestion.command_template.len(),
+            suggestion.command_template.clone(),
+        )
+    });
+    suggestions.truncate(limit);
+    suggestions
+}
+
+fn catalog_suggestion_score(
+    command_template: &str,
+    intent: &str,
+    description: &str,
+    source_shell: &str,
+    target_platform: Platform,
+    risk_level: &str,
+    query_tokens: &[&str],
+    normalized_query: &str,
+) -> i32 {
+    let command_lower = command_template.to_ascii_lowercase();
+    let intent_lower = intent.to_ascii_lowercase();
+    let description_lower = description.to_ascii_lowercase();
+    let command_tokens = command_lower
+        .split_whitespace()
+        .map(normalize_search_token)
+        .collect::<Vec<_>>();
+
+    let mut score = 0;
+    if command_lower == normalized_query {
+        score += 100;
+    }
+    if command_lower.starts_with(normalized_query) {
+        score += 80;
+    }
+
+    for token in query_tokens {
+        if command_tokens
+            .iter()
+            .any(|command_token| command_token.starts_with(token))
+        {
+            score += 50;
+        }
+
+        if intent_lower.contains(token) {
+            score += 30;
+        }
+
+        if description_lower.contains(token) {
+            score += 20;
+        }
+    }
+
+    if source_shell_matches_target(source_shell, target_platform) {
+        score += 20;
+    }
+
+    score += match risk_level {
+        "low" => 5,
+        "high" => -20,
+        _ => 0,
+    };
+
+    score
+}
+
+fn is_strong_catalog_match(command_template: &str, intent: &str, normalized_query: &str) -> bool {
+    let command_lower = command_template.to_ascii_lowercase();
+    let intent_lower = intent.to_ascii_lowercase();
+
+    command_lower.starts_with(normalized_query)
+        || command_lower
+            .split_whitespace()
+            .map(normalize_search_token)
+            .any(|token| token.starts_with(normalized_query))
+        || intent_lower.contains(normalized_query)
+}
+
+fn source_shell_matches_target(source_shell: &str, target_platform: Platform) -> bool {
+    match target_platform {
+        Platform::Windows => matches!(source_shell, "windows_cmd" | "powershell"),
+        Platform::Macos => source_shell == "macos",
+        Platform::Ubuntu => source_shell == "ubuntu",
+    }
+}
+
+fn normalize_search_token(token: &str) -> String {
+    token
+        .trim_matches(|character: char| !character.is_ascii_alphanumeric())
+        .to_ascii_lowercase()
+}
+
+fn risk_priority(risk: &str) -> u8 {
+    match risk {
+        "low" => 0,
+        "medium" => 1,
+        "high" => 2,
+        "destructive" => 3,
+        _ => 4,
     }
 }
 
@@ -828,7 +1059,10 @@ fn home_dir() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{native_pwd_command, parse_cd_command, resolve_cd_target_with_home};
+    use super::{
+        load_reviewed_command_catalog, native_pwd_command, parse_cd_command, resolve_cd_target_with_home,
+        search_catalog_suggestions_internal,
+    };
     use cli4all::platform::Platform;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -910,5 +1144,96 @@ mod tests {
         assert_eq!(native_pwd_command(Platform::Macos), "pwd");
         assert_eq!(native_pwd_command(Platform::Ubuntu), "pwd");
         assert_eq!(native_pwd_command(Platform::Windows), "Get-Location");
+    }
+
+    #[test]
+    fn catalog_search_returns_curl_suggestions() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "cur", Platform::Windows, 5);
+
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.command_template.starts_with("curl -I")),
+            "curl header suggestion should appear"
+        );
+    }
+
+    #[test]
+    fn catalog_search_returns_head_suggestions() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "head", Platform::Windows, 5);
+
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.intent_id == "head_file"),
+            "head_file should be discoverable"
+        );
+    }
+
+    #[test]
+    fn catalog_search_matches_port_related_intents() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "port", Platform::Macos, 5);
+
+        assert!(
+            suggestions.iter().any(|suggestion| {
+                suggestion.intent_id == "process_by_port"
+                    || suggestion.intent_id == "list_listening_ports"
+                    || suggestion.intent_id == "check_port"
+            }),
+            "port query should surface reviewed port-related intents"
+        );
+    }
+
+    #[test]
+    fn catalog_search_matches_git_status() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "git s", Platform::Macos, 5);
+
+        assert_eq!(suggestions.first().map(|item| item.intent_id.as_str()), Some("git_status"));
+    }
+
+    #[test]
+    fn catalog_search_marks_npm_risk() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "npm", Platform::Macos, 5);
+
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.intent_id == "npm_install" && suggestion.risk == "medium")
+        );
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.intent_id == "npm_run" && suggestion.risk == "medium")
+        );
+    }
+
+    #[test]
+    fn catalog_search_hides_destructive_suggestions() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "rm -rf /", Platform::Macos, 5);
+
+        assert!(
+            suggestions
+                .iter()
+                .all(|suggestion| suggestion.risk != "destructive"),
+            "destructive suggestions should not be returned"
+        );
+    }
+
+    #[test]
+    fn catalog_search_can_surface_high_risk_permission_changes() {
+        let catalog = load_reviewed_command_catalog().expect("catalog should load");
+        let suggestions = search_catalog_suggestions_internal(&catalog, "chmod", Platform::Macos, 5);
+
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.intent_id == "change_permission" && suggestion.risk == "high")
+        );
     }
 }

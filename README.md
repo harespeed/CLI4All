@@ -225,6 +225,22 @@ Desktop modes:
 - Native Mode behaves like a normal terminal. Raw keyboard input is sent directly to the PTY and the real shell prompt comes from the native shell.
 - Translate Mode buffers one local line, translates remembered cross-platform commands through the Rust CLI4ALL logic, applies the existing safety rules, and writes only the translated native command to the PTY.
 
+Catalog-based autocomplete:
+
+- Translate Mode searches the reviewed command catalog for suggestions while you type.
+- History ghost suggestions keep priority over catalog suggestions.
+- `Tab` accepts the history ghost first, then falls back to the selected catalog suggestion.
+- Medium-risk suggestions can still appear, but execution still goes through the normal safety confirmation path.
+- Destructive commands are not suggested by default.
+- Native Mode stays shell-native and does not show CLI4ALL catalog suggestions.
+
+Examples:
+
+- `cur` -> `curl -I <url>`
+- `hea` -> `head -n <n> <file>`
+- `port` -> `lsof -i :<port_token>` or `Get-NetTCPConnection -LocalPort <port>`
+- `git s` -> `git status`
+
 ## Desktop App Preview
 
 `desktop/` is the macOS desktop packaging target for the Tauri app. The UI exposes a visible Native Mode / Translate Mode toggle, and `npm run tauri build` can produce `.app` and `.dmg` artifacts on macOS.
