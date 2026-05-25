@@ -1,4 +1,10 @@
 risks:
+  - name: chmod-root-world-writable
+    level: destructive
+    reason: recursively grants full permissions to the root filesystem.
+    patterns:
+      - '(?i)^\s*(?:sudo\s+)?chmod\s+-R\s+777\s+/(?:\s|$)'
+
   - name: remove-root
     level: destructive
     reason: recursively removes the root filesystem.
@@ -13,6 +19,15 @@ risks:
     reason: recursively grants full read, write, and execute permissions to everyone.
     patterns:
       - '(?i)^\s*chmod\s+-R\s+777(?:\s|$)'
+
+  - name: permission-or-owner-change
+    level: high
+    reason: changes file permissions or ownership and can expose or break important files.
+    patterns:
+      - '(?i)^\s*(?:sudo\s+)?chmod\b'
+      - '(?i)^\s*(?:sudo\s+)?chown\b'
+      - '(?i)^\s*icacls\b'
+      - '(?i)^\s*takeown\b'
 
   - name: curl-piped-to-shell
     level: high

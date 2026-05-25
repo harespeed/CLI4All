@@ -11,9 +11,25 @@ fn flags_rm_root_as_destructive() {
 }
 
 #[test]
+fn flags_root_recursive_chmod_as_destructive() {
+    let catalog = load_risk_catalog().expect("risk catalog should load");
+    let result = assess_risk("chmod -R 777 /", &catalog);
+
+    assert_eq!(result.level, "destructive");
+}
+
+#[test]
 fn flags_recursive_chmod_as_high_risk() {
     let catalog = load_risk_catalog().expect("risk catalog should load");
     let result = assess_risk("chmod -R 777 .", &catalog);
+
+    assert_eq!(result.level, "high");
+}
+
+#[test]
+fn flags_chown_as_high_risk() {
+    let catalog = load_risk_catalog().expect("risk catalog should load");
+    let result = assess_risk("chown user file.txt", &catalog);
 
     assert_eq!(result.level, "high");
 }

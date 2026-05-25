@@ -52,6 +52,18 @@ fn preserves_quoted_path_when_translating_dir() {
 }
 
 #[test]
+fn normalizes_unix_hidden_listing_flags_for_windows() {
+    let decision = shell_decision(r#"ls -a "Program Files""#, "windows");
+
+    assert_eq!(decision.intent.as_deref(), Some("list_all_files"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some(r#"Get-ChildItem -Force "Program Files""#)
+    );
+    assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
 fn maps_unix_listing_to_powershell_on_windows() {
     let decision = shell_decision("ls -la", "windows");
 
@@ -132,6 +144,18 @@ fn preserves_two_quoted_paths_when_copying() {
 }
 
 #[test]
+fn normalizes_windows_ping_count_for_unix_targets() {
+    let decision = shell_decision("ping -n 2 example.com", "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("ping_host"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some("ping -c 2 example.com")
+    );
+    assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
 fn taskkill_requires_confirmation() {
     let decision = shell_decision("taskkill /PID 123 /F", "macos");
 
@@ -190,4 +214,67 @@ fn preserves_quoted_pattern_and_file_for_text_search() {
         Some(r#"grep "error code" "app log.txt""#)
     );
     assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
+fn normalizes_case_insensitive_text_search_flags() {
+    let decision = shell_decision(r#"findstr /i "error code" "app log.txt""#, "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("search_text"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some(r#"grep -i "error code" "app log.txt""#)
+    );
+    assert_eq!(decision.action, ShellAction::Execute);
+}
+
+#[test]
+fn npm_install_requires_confirmation() {
+    let decision = shell_decision("npm install", "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("npm_install"));
+    assert_eq!(decision.translated_command.as_deref(), Some("npm install"));
+    assert_eq!(decision.action, ShellAction::Confirm);
+}
+
+#[test]
+fn npm_run_requires_confirmation() {
+    let decision = shell_decision("npm run dev", "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("npm_run"));
+    assert_eq!(decision.translated_command.as_deref(), Some("npm run dev"));
+    assert_eq!(decision.action, ShellAction::Confirm);
+}
+
+#[test]
+fn chmod_root_world_writable_is_blocked() {
+    let decision = shell_decision("chmod -R 777 /", "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("change_permission"));
+    assert_eq!(decision.risk_level, "destructive");
+    assert_eq!(decision.action, ShellAction::Block);
+}
+
+#[test]
+fn chmod_requires_confirmation() {
+    let decision = shell_decision("chmod 777 file.txt", "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("change_permission"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some("chmod 777 file.txt")
+    );
+    assert_eq!(decision.action, ShellAction::Confirm);
+}
+
+#[test]
+fn chown_requires_confirmation() {
+    let decision = shell_decision("chown user file.txt", "macos");
+
+    assert_eq!(decision.intent.as_deref(), Some("change_owner"));
+    assert_eq!(
+        decision.translated_command.as_deref(),
+        Some("chown user file.txt")
+    );
+    assert_eq!(decision.action, ShellAction::Confirm);
 }

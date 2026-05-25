@@ -122,6 +122,17 @@ fn finds_quoted_placeholder_command_by_template_scan() {
 }
 
 #[test]
+fn finds_recursive_name_search_by_template_scan() {
+    let store = build_temp_store();
+    let record = store
+        .find_by_command(r#"find . -name "*.rs""#)
+        .expect("lookup should succeed")
+        .expect("record should exist");
+
+    assert_eq!(record.intent, "find_by_name");
+}
+
+#[test]
 fn finds_record_by_intent() {
     let store = build_temp_store();
     let record = store

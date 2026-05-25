@@ -6,7 +6,10 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["dir <path>", "dir"],
+        "windows_cmd": [
+          "dir <path>",
+          "dir"
+        ],
         "powershell": [
           "Get-ChildItem <path>",
           "Get-ChildItem",
@@ -15,8 +18,14 @@
           "dir <path>",
           "dir"
         ],
-        "macos": ["ls <path>", "ls"],
-        "ubuntu": ["ls <path>", "ls"]
+        "macos": [
+          "ls <path>",
+          "ls"
+        ],
+        "ubuntu": [
+          "ls <path>",
+          "ls"
+        ]
       },
       "notes": [
         "This intent covers standard non-hidden directory listings.",
@@ -29,15 +38,24 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["dir /a <path>", "dir /a"],
+        "windows_cmd": [
+          "dir /a <path>",
+          "dir /a"
+        ],
         "powershell": [
           "Get-ChildItem -Force <path>",
           "Get-ChildItem -Force",
           "ls -la <path>",
           "ls -la"
         ],
-        "macos": ["ls -la <path>", "ls -la"],
-        "ubuntu": ["ls -la <path>", "ls -la"]
+        "macos": [
+          "ls -la <path>",
+          "ls -la"
+        ],
+        "ubuntu": [
+          "ls -la <path>",
+          "ls -la"
+        ]
       },
       "notes": [
         "PowerShell Get-ChildItem -Force is the closest Windows equivalent for showing hidden items."
@@ -49,10 +67,20 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["cls"],
-        "powershell": ["Clear-Host", "cls", "clear"],
-        "macos": ["clear"],
-        "ubuntu": ["clear"]
+        "windows_cmd": [
+          "cls"
+        ],
+        "powershell": [
+          "Clear-Host",
+          "cls",
+          "clear"
+        ],
+        "macos": [
+          "clear"
+        ],
+        "ubuntu": [
+          "clear"
+        ]
       },
       "notes": [
         "This affects terminal display only and does not modify files."
@@ -64,10 +92,19 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["cd"],
-        "powershell": ["Get-Location", "pwd"],
-        "macos": ["pwd"],
-        "ubuntu": ["pwd"]
+        "windows_cmd": [
+          "cd"
+        ],
+        "powershell": [
+          "Get-Location",
+          "pwd"
+        ],
+        "macos": [
+          "pwd"
+        ],
+        "ubuntu": [
+          "pwd"
+        ]
       },
       "notes": [
         "Translate Mode keeps its own working directory and reports it explicitly."
@@ -79,10 +116,19 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["cd <path>"],
-        "powershell": ["Set-Location <path>", "cd <path>"],
-        "macos": ["cd <path>"],
-        "ubuntu": ["cd <path>"]
+        "windows_cmd": [
+          "cd <path>"
+        ],
+        "powershell": [
+          "Set-Location <path>",
+          "cd <path>"
+        ],
+        "macos": [
+          "cd <path>"
+        ],
+        "ubuntu": [
+          "cd <path>"
+        ]
       },
       "notes": [
         "The desktop Translate Mode intercepts cd and updates its own cwd state before command execution."
@@ -94,10 +140,18 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["whoami"],
-        "powershell": ["whoami"],
-        "macos": ["whoami"],
-        "ubuntu": ["whoami"]
+        "windows_cmd": [
+          "whoami"
+        ],
+        "powershell": [
+          "whoami"
+        ],
+        "macos": [
+          "whoami"
+        ],
+        "ubuntu": [
+          "whoami"
+        ]
       },
       "notes": [
         "This is informational and does not modify system state."
@@ -109,10 +163,20 @@
       "category": "networking",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["ipconfig"],
-        "powershell": ["ipconfig", "Get-NetIPConfiguration", "Get-NetIPAddress"],
-        "macos": ["ifconfig"],
-        "ubuntu": ["ip addr"]
+        "windows_cmd": [
+          "ipconfig"
+        ],
+        "powershell": [
+          "ipconfig",
+          "Get-NetIPConfiguration",
+          "Get-NetIPAddress"
+        ],
+        "macos": [
+          "ifconfig"
+        ],
+        "ubuntu": [
+          "ip addr"
+        ]
       },
       "notes": [
         "CLI4ALL prefers ifconfig on macOS and ip addr on Linux for the translated target command."
@@ -124,13 +188,48 @@
       "category": "networking",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["ipconfig /all"],
-        "powershell": ["ipconfig /all", "Get-DnsClientServerAddress"],
-        "macos": ["scutil --dns"],
-        "ubuntu": ["resolvectl status", "cat /etc/resolv.conf"]
+        "windows_cmd": [
+          "ipconfig /all"
+        ],
+        "powershell": [
+          "ipconfig /all",
+          "Get-DnsClientServerAddress"
+        ],
+        "macos": [
+          "scutil --dns"
+        ],
+        "ubuntu": [
+          "resolvectl status",
+          "cat /etc/resolv.conf"
+        ]
       },
       "notes": [
         "The exact DNS detail level differs by platform, so CLI4ALL maps to the closest native inspection command."
+      ]
+    },
+    {
+      "intent": "dns_lookup",
+      "description": "Resolve DNS records for a domain.",
+      "category": "networking",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "nslookup <domain>"
+        ],
+        "powershell": [
+          "Resolve-DnsName <domain>"
+        ],
+        "macos": [
+          "nslookup <domain>",
+          "dig <domain>"
+        ],
+        "ubuntu": [
+          "nslookup <domain>",
+          "dig <domain>"
+        ]
+      },
+      "notes": [
+        "CLI4ALL prefers the most common DNS lookup tools rather than shell-specific aliases."
       ]
     },
     {
@@ -139,13 +238,113 @@
       "category": "networking",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["ping <host>"],
-        "powershell": ["Test-Connection <host>", "ping <host>"],
-        "macos": ["ping -c 4 <host>", "ping <host>"],
-        "ubuntu": ["ping -c 4 <host>", "ping <host>"]
+        "windows_cmd": [
+          "ping <host>"
+        ],
+        "powershell": [
+          "Test-Connection <host>",
+          "ping <host>"
+        ],
+        "macos": [
+          "ping -c 4 <host>",
+          "ping <host>"
+        ],
+        "ubuntu": [
+          "ping -c 4 <host>",
+          "ping <host>"
+        ]
       },
       "notes": [
         "CLI4ALL prefers a bounded four-packet ping on macOS and Linux so Translate Mode does not run indefinitely."
+      ]
+    },
+    {
+      "intent": "trace_route",
+      "description": "Trace the route packets take to a destination host.",
+      "category": "networking",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "tracert <host>"
+        ],
+        "powershell": [
+          "Test-NetConnection <host> -TraceRoute"
+        ],
+        "macos": [
+          "traceroute <host>"
+        ],
+        "ubuntu": [
+          "traceroute <host>"
+        ]
+      },
+      "notes": [
+        "Route tracing is read-only but can be long-running on slow networks."
+      ]
+    },
+    {
+      "intent": "http_head",
+      "description": "Fetch HTTP response headers without downloading the full body.",
+      "category": "networking",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "curl -I <url>"
+        ],
+        "powershell": [
+          "Invoke-WebRequest -Method Head <url>"
+        ],
+        "macos": [
+          "curl -I <url>"
+        ],
+        "ubuntu": [
+          "curl -I <url>"
+        ]
+      },
+      "notes": [
+        "This intent stays header-only and does not attempt broader HTTP client option translation."
+      ]
+    },
+    {
+      "intent": "download_to_file",
+      "description": "Download a URL to a local file.",
+      "category": "networking",
+      "risk_level": "medium",
+      "commands": {
+        "windows_cmd": [
+          "curl -L <url> -o <file>"
+        ],
+        "powershell": [
+          "Invoke-WebRequest <url> -OutFile <file>"
+        ],
+        "macos": [
+          "curl -L <url> -o <file>"
+        ],
+        "ubuntu": [
+          "curl -L <url> -o <file>"
+        ]
+      },
+      "notes": [
+        "Downloading to a file modifies the filesystem, so Translate Mode asks for confirmation."
+      ]
+    },
+    {
+      "intent": "check_port",
+      "description": "Check whether a host port is reachable.",
+      "category": "networking",
+      "risk_level": "low",
+      "commands": {
+        "powershell": [
+          "Test-NetConnection <host> -Port <port>"
+        ],
+        "macos": [
+          "nc -vz <host> <port>"
+        ],
+        "ubuntu": [
+          "nc -vz <host> <port>"
+        ]
+      },
+      "notes": [
+        "This intent is useful for quick service checks and stays read-only."
       ]
     },
     {
@@ -154,13 +353,46 @@
       "category": "processes",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["tasklist"],
-        "powershell": ["Get-Process"],
-        "macos": ["ps aux"],
-        "ubuntu": ["ps aux"]
+        "windows_cmd": [
+          "tasklist"
+        ],
+        "powershell": [
+          "Get-Process"
+        ],
+        "macos": [
+          "ps aux"
+        ],
+        "ubuntu": [
+          "ps aux"
+        ]
       },
       "notes": [
         "ps aux shows process details for all users."
+      ]
+    },
+    {
+      "intent": "find_process_by_name",
+      "description": "Find running processes by name.",
+      "category": "processes",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "tasklist | findstr <name>"
+        ],
+        "powershell": [
+          "Get-Process <name>"
+        ],
+        "macos": [
+          "pgrep -fl <name>",
+          "ps aux | grep <name>"
+        ],
+        "ubuntu": [
+          "pgrep -fl <name>",
+          "ps aux | grep <name>"
+        ]
+      },
+      "notes": [
+        "CLI4ALL prefers direct process-name queries over broad connection listings for this intent."
       ]
     },
     {
@@ -169,10 +401,19 @@
       "category": "processes",
       "risk_level": "medium",
       "commands": {
-        "windows_cmd": ["taskkill /PID <pid> /F", "taskkill /PID <pid>"],
-        "powershell": ["Stop-Process -Id <pid>"],
-        "macos": ["kill <pid>"],
-        "ubuntu": ["kill <pid>"]
+        "windows_cmd": [
+          "taskkill /PID <pid> /F",
+          "taskkill /PID <pid>"
+        ],
+        "powershell": [
+          "Stop-Process -Id <pid>"
+        ],
+        "macos": [
+          "kill <pid>"
+        ],
+        "ubuntu": [
+          "kill <pid>"
+        ]
       },
       "notes": [
         "Killing the wrong process can interrupt services or terminate unsaved work."
@@ -184,10 +425,20 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["mkdir <dir>", "md <dir>"],
-        "powershell": ["New-Item -ItemType Directory <dir>", "mkdir <dir>"],
-        "macos": ["mkdir <dir>"],
-        "ubuntu": ["mkdir <dir>"]
+        "windows_cmd": [
+          "mkdir <dir>",
+          "md <dir>"
+        ],
+        "powershell": [
+          "New-Item -ItemType Directory <dir>",
+          "mkdir <dir>"
+        ],
+        "macos": [
+          "mkdir <dir>"
+        ],
+        "ubuntu": [
+          "mkdir <dir>"
+        ]
       },
       "notes": [
         "Directory creation is safe for automatic Translate Mode execution."
@@ -199,10 +450,19 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["copy <src> <dst>"],
-        "powershell": ["Copy-Item <src> <dst>", "cp <src> <dst>"],
-        "macos": ["cp <src> <dst>"],
-        "ubuntu": ["cp <src> <dst>"]
+        "windows_cmd": [
+          "copy <src> <dst>"
+        ],
+        "powershell": [
+          "Copy-Item <src> <dst>",
+          "cp <src> <dst>"
+        ],
+        "macos": [
+          "cp <src> <dst>"
+        ],
+        "ubuntu": [
+          "cp <src> <dst>"
+        ]
       },
       "notes": [
         "Copy operations are treated as low-risk even though an existing destination file may be overwritten."
@@ -214,14 +474,21 @@
       "category": "filesystem",
       "risk_level": "medium",
       "commands": {
-        "windows_cmd": ["move <src> <dst>", "ren <src> <dst>"],
+        "windows_cmd": [
+          "move <src> <dst>",
+          "ren <src> <dst>"
+        ],
         "powershell": [
           "Move-Item <src> <dst>",
           "Rename-Item <src> <dst>",
           "mv <src> <dst>"
         ],
-        "macos": ["mv <src> <dst>"],
-        "ubuntu": ["mv <src> <dst>"]
+        "macos": [
+          "mv <src> <dst>"
+        ],
+        "ubuntu": [
+          "mv <src> <dst>"
+        ]
       },
       "notes": [
         "Move and rename operations can replace or relocate important files, so Translate Mode asks for confirmation."
@@ -233,13 +500,137 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["type <file>"],
-        "powershell": ["Get-Content <file>", "cat <file>"],
-        "macos": ["cat <file>"],
-        "ubuntu": ["cat <file>"]
+        "windows_cmd": [
+          "type <file>"
+        ],
+        "powershell": [
+          "Get-Content <file>",
+          "cat <file>"
+        ],
+        "macos": [
+          "cat <file>"
+        ],
+        "ubuntu": [
+          "cat <file>"
+        ]
       },
       "notes": [
         "This intent is intended for small text inspection rather than paging through large files."
+      ]
+    },
+    {
+      "intent": "count_lines_words_chars",
+      "description": "Count lines, words, and characters in a file.",
+      "category": "filesystem",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "find /c /v \"\" <file>"
+        ],
+        "powershell": [
+          "Get-Content <file> | Measure-Object -Line -Word -Character",
+          "Get-Content <file> | Measure-Object -Line"
+        ],
+        "macos": [
+          "wc <file>",
+          "wc -l <file>"
+        ],
+        "ubuntu": [
+          "wc <file>",
+          "wc -l <file>"
+        ]
+      },
+      "notes": [
+        "Windows CMD only has a reviewed line-count fallback, while PowerShell exposes the full line, word, and character counts."
+      ]
+    },
+    {
+      "intent": "head_file",
+      "description": "Show the first lines of a text file.",
+      "category": "filesystem",
+      "risk_level": "low",
+      "commands": {
+        "powershell": [
+          "Get-Content <file> -TotalCount <n>",
+          "Get-Content <file> -TotalCount 10"
+        ],
+        "macos": [
+          "head -n <n> <file>",
+          "head <file>"
+        ],
+        "ubuntu": [
+          "head -n <n> <file>",
+          "head <file>"
+        ]
+      },
+      "notes": [
+        "The default head count stays ten lines when the source command omits an explicit count."
+      ]
+    },
+    {
+      "intent": "tail_file",
+      "description": "Show the last lines of a text file.",
+      "category": "filesystem",
+      "risk_level": "low",
+      "commands": {
+        "powershell": [
+          "Get-Content <file> -Tail <n>",
+          "Get-Content <file> -Tail 10"
+        ],
+        "macos": [
+          "tail -n <n> <file>",
+          "tail <file>"
+        ],
+        "ubuntu": [
+          "tail -n <n> <file>",
+          "tail <file>"
+        ]
+      },
+      "notes": [
+        "The reviewed fallback for bare tail reads the last ten lines."
+      ]
+    },
+    {
+      "intent": "follow_file",
+      "description": "Follow a file as new lines are appended.",
+      "category": "filesystem",
+      "risk_level": "low",
+      "commands": {
+        "powershell": [
+          "Get-Content <file> -Wait"
+        ],
+        "macos": [
+          "tail -f <file>"
+        ],
+        "ubuntu": [
+          "tail -f <file>"
+        ]
+      },
+      "notes": [
+        "This intent is intentionally long-running and should stream output in Translate Mode."
+      ]
+    },
+    {
+      "intent": "file_hash",
+      "description": "Calculate a SHA-256 file hash.",
+      "category": "filesystem",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "certutil -hashfile <file> SHA256"
+        ],
+        "powershell": [
+          "Get-FileHash <file> -Algorithm SHA256"
+        ],
+        "macos": [
+          "shasum -a 256 <file>"
+        ],
+        "ubuntu": [
+          "sha256sum <file>"
+        ]
+      },
+      "notes": [
+        "CLI4ALL standardizes on SHA-256 because it is broadly available on every target platform."
       ]
     },
     {
@@ -248,10 +639,19 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["type nul > <file>", "echo. > <file>"],
-        "powershell": ["New-Item <file> -ItemType File"],
-        "macos": ["touch <file>"],
-        "ubuntu": ["touch <file>"]
+        "windows_cmd": [
+          "type nul > <file>",
+          "echo. > <file>"
+        ],
+        "powershell": [
+          "New-Item <file> -ItemType File"
+        ],
+        "macos": [
+          "touch <file>"
+        ],
+        "ubuntu": [
+          "touch <file>"
+        ]
       },
       "notes": [
         "The Windows examples rely on shell redirection; the translated target stays a simple native file-creation command."
@@ -263,10 +663,20 @@
       "category": "filesystem",
       "risk_level": "medium",
       "commands": {
-        "windows_cmd": ["del <file>", "erase <file>"],
-        "powershell": ["Remove-Item <file>", "del <file>"],
-        "macos": ["rm <file>"],
-        "ubuntu": ["rm <file>"]
+        "windows_cmd": [
+          "del <file>",
+          "erase <file>"
+        ],
+        "powershell": [
+          "Remove-Item <file>",
+          "del <file>"
+        ],
+        "macos": [
+          "rm <file>"
+        ],
+        "ubuntu": [
+          "rm <file>"
+        ]
       },
       "notes": [
         "Translate Mode requires confirmation before deleting files."
@@ -278,13 +688,152 @@
       "category": "filesystem",
       "risk_level": "high",
       "commands": {
-        "windows_cmd": ["rmdir /S <dir>", "rd /S <dir>"],
-        "powershell": ["Remove-Item -Recurse <dir>", "rmdir <dir>"],
-        "macos": ["rm -r <dir>"],
-        "ubuntu": ["rm -r <dir>"]
+        "windows_cmd": [
+          "rmdir /S <dir>",
+          "rd /S <dir>"
+        ],
+        "powershell": [
+          "Remove-Item -Recurse <dir>",
+          "rmdir <dir>"
+        ],
+        "macos": [
+          "rm -r <dir>"
+        ],
+        "ubuntu": [
+          "rm -r <dir>"
+        ]
       },
       "notes": [
         "Recursive directory removal is high-risk and still yields a destructive block when it targets a root path."
+      ]
+    },
+    {
+      "intent": "create_zip",
+      "description": "Create a zip archive from a file or directory.",
+      "category": "filesystem",
+      "risk_level": "medium",
+      "commands": {
+        "powershell": [
+          "Compress-Archive -Path <path> -DestinationPath <archive>"
+        ],
+        "macos": [
+          "zip -r <archive> <path>"
+        ],
+        "ubuntu": [
+          "zip -r <archive> <path>"
+        ]
+      },
+      "notes": [
+        "Archive creation writes a new file and therefore requires confirmation."
+      ]
+    },
+    {
+      "intent": "extract_zip",
+      "description": "Extract a zip archive.",
+      "category": "filesystem",
+      "risk_level": "medium",
+      "commands": {
+        "powershell": [
+          "Expand-Archive -Path <archive> -DestinationPath <path>",
+          "Expand-Archive -Path <archive> -DestinationPath ."
+        ],
+        "macos": [
+          "unzip <archive> -d <path>",
+          "unzip <archive>"
+        ],
+        "ubuntu": [
+          "unzip <archive> -d <path>",
+          "unzip <archive>"
+        ]
+      },
+      "notes": [
+        "Archive extraction writes files into the destination directory and therefore requires confirmation."
+      ]
+    },
+    {
+      "intent": "create_tar_gz",
+      "description": "Create a compressed tar.gz archive.",
+      "category": "filesystem",
+      "risk_level": "medium",
+      "commands": {
+        "powershell": [
+          "tar -czf <archive> <path>"
+        ],
+        "macos": [
+          "tar -czf <archive> <path>"
+        ],
+        "ubuntu": [
+          "tar -czf <archive> <path>"
+        ]
+      },
+      "notes": [
+        "CLI4ALL keeps tar.gz creation reviewed and confirmation-gated because it writes archive files."
+      ]
+    },
+    {
+      "intent": "extract_tar_gz",
+      "description": "Extract a compressed tar.gz archive.",
+      "category": "filesystem",
+      "risk_level": "medium",
+      "commands": {
+        "powershell": [
+          "tar -xzf <archive>"
+        ],
+        "macos": [
+          "tar -xzf <archive>"
+        ],
+        "ubuntu": [
+          "tar -xzf <archive>"
+        ]
+      },
+      "notes": [
+        "Archive extraction writes files and is therefore confirmation-gated."
+      ]
+    },
+    {
+      "intent": "change_permission",
+      "description": "Change file or directory permissions.",
+      "category": "filesystem",
+      "risk_level": "high",
+      "commands": {
+        "windows_cmd": [
+          "icacls <path> /grant <grant...>"
+        ],
+        "powershell": [
+          "icacls <path> /grant <grant...>"
+        ],
+        "macos": [
+          "chmod <mode> <path>"
+        ],
+        "ubuntu": [
+          "chmod <mode> <path>"
+        ]
+      },
+      "notes": [
+        "Permission changes can expose sensitive files or break execution, so Translate Mode always asks for confirmation."
+      ]
+    },
+    {
+      "intent": "change_owner",
+      "description": "Change file or directory ownership.",
+      "category": "filesystem",
+      "risk_level": "high",
+      "commands": {
+        "windows_cmd": [
+          "takeown /F <path>"
+        ],
+        "powershell": [
+          "takeown /F <path>"
+        ],
+        "macos": [
+          "chown <owner> <path>"
+        ],
+        "ubuntu": [
+          "chown <owner> <path>"
+        ]
+      },
+      "notes": [
+        "Ownership changes are privileged operations on many systems and therefore require confirmation."
       ]
     },
     {
@@ -293,10 +842,19 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["start ."],
-        "powershell": ["Invoke-Item .", "ii ."],
-        "macos": ["open ."],
-        "ubuntu": ["xdg-open ."]
+        "windows_cmd": [
+          "start ."
+        ],
+        "powershell": [
+          "Invoke-Item .",
+          "ii ."
+        ],
+        "macos": [
+          "open ."
+        ],
+        "ubuntu": [
+          "xdg-open ."
+        ]
       },
       "notes": [
         "This delegates to the platform file browser and may open a GUI application."
@@ -308,10 +866,19 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["start <path_or_url>"],
-        "powershell": ["Start-Process <path_or_url>", "ii <path_or_url>"],
-        "macos": ["open <path_or_url>"],
-        "ubuntu": ["xdg-open <path_or_url>"]
+        "windows_cmd": [
+          "start <path_or_url>"
+        ],
+        "powershell": [
+          "Start-Process <path_or_url>",
+          "ii <path_or_url>"
+        ],
+        "macos": [
+          "open <path_or_url>"
+        ],
+        "ubuntu": [
+          "xdg-open <path_or_url>"
+        ]
       },
       "notes": [
         "CLI4ALL preserves a single placeholder token for simple path or URL arguments."
@@ -323,9 +890,16 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["clip <text>"],
-        "powershell": ["Set-Clipboard <text>", "clip <text>"],
-        "macos": ["printf %s <text> | pbcopy"],
+        "windows_cmd": [
+          "clip <text>"
+        ],
+        "powershell": [
+          "Set-Clipboard <text>",
+          "clip <text>"
+        ],
+        "macos": [
+          "printf %s <text> | pbcopy"
+        ],
         "ubuntu": [
           "printf %s <text> | xclip -selection clipboard",
           "printf %s <text> | xsel -ib"
@@ -341,28 +915,47 @@
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["powershell Get-Clipboard"],
-        "powershell": ["Get-Clipboard"],
-        "macos": ["pbpaste"],
-        "ubuntu": ["xclip -selection clipboard -o", "xsel -ob"]
+        "windows_cmd": [
+          "powershell Get-Clipboard"
+        ],
+        "powershell": [
+          "Get-Clipboard"
+        ],
+        "macos": [
+          "pbpaste"
+        ],
+        "ubuntu": [
+          "xclip -selection clipboard -o",
+          "xsel -ob"
+        ]
       },
       "notes": [
         "Clipboard commands depend on platform tooling already being installed."
       ]
     },
     {
-      "intent": "find_executable",
+      "intent": "locate_executable",
       "description": "Locate the executable that will run for a given command name.",
       "category": "shell",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["where <name>"],
-        "powershell": ["Get-Command <name>"],
-        "macos": ["which <name>"],
-        "ubuntu": ["which <name>"]
+        "windows_cmd": [
+          "where <name>"
+        ],
+        "powershell": [
+          "Get-Command <name>"
+        ],
+        "macos": [
+          "which <name>",
+          "command -v <name>"
+        ],
+        "ubuntu": [
+          "which <name>",
+          "command -v <name>"
+        ]
       },
       "notes": [
-        "Use this to confirm which binary is first on PATH."
+        "CLI4ALL keeps this mapping reviewed and exact instead of attempting arbitrary environment-variable expansion."
       ]
     },
     {
@@ -371,28 +964,73 @@
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["findstr <pattern> <file>"],
-        "powershell": ["Select-String <pattern> <file>"],
-        "macos": ["grep <pattern> <file>"],
-        "ubuntu": ["grep <pattern> <file>"]
+        "windows_cmd": [
+          "findstr <pattern> <file>"
+        ],
+        "powershell": [
+          "Select-String <pattern> <file>"
+        ],
+        "macos": [
+          "grep <pattern> <file>"
+        ],
+        "ubuntu": [
+          "grep <pattern> <file>"
+        ]
       },
       "notes": [
         "CLI4ALL treats basic text search as a read-only inspection command."
       ]
     },
     {
-      "intent": "find_file",
-      "description": "Find files by name from the current directory tree.",
+      "intent": "search_text_recursive",
+      "description": "Search text recursively through files under a directory tree.",
       "category": "filesystem",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["dir /s <name>"],
-        "powershell": ["Get-ChildItem -Recurse -Filter <name>"],
-        "macos": ["find . -name <name>"],
-        "ubuntu": ["find . -name <name>"]
+        "windows_cmd": [
+          "findstr /S /N <pattern> <path>",
+          "findstr /S <pattern> <path>"
+        ],
+        "powershell": [
+          "Select-String -Path <path> -Pattern <pattern> -Recurse"
+        ],
+        "macos": [
+          "grep -R <pattern> <path>",
+          "grep -rn <pattern> <path>"
+        ],
+        "ubuntu": [
+          "grep -R <pattern> <path>",
+          "grep -rn <pattern> <path>"
+        ]
       },
       "notes": [
-        "This intent is limited to the reviewed current-directory search form and does not attempt broad path rewrites."
+        "Recursive text search is kept separate from single-file search so CLI4ALL can preserve the path argument and recurse flag."
+      ]
+    },
+    {
+      "intent": "find_by_name",
+      "description": "Find files or directories by name.",
+      "category": "filesystem",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "dir /s /b <name>"
+        ],
+        "powershell": [
+          "Get-ChildItem -Path <path> -Recurse -Filter <name>",
+          "Get-ChildItem -Recurse -Filter <name>"
+        ],
+        "macos": [
+          "find <path> -name <name>",
+          "find . -name <name>"
+        ],
+        "ubuntu": [
+          "find <path> -name <name>",
+          "find . -name <name>"
+        ]
+      },
+      "notes": [
+        "Reviewed mappings keep the path and name placeholders separate so quoted globs and paths survive translation."
       ]
     },
     {
@@ -401,28 +1039,71 @@
       "category": "networking",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["curl <url>"],
-        "powershell": ["Invoke-WebRequest <url>", "curl <url>"],
-        "macos": ["curl <url>"],
-        "ubuntu": ["curl <url>"]
+        "windows_cmd": [
+          "curl <url>"
+        ],
+        "powershell": [
+          "Invoke-WebRequest <url>",
+          "curl <url>"
+        ],
+        "macos": [
+          "curl <url>"
+        ],
+        "ubuntu": [
+          "curl <url>"
+        ]
       },
       "notes": [
         "Simple URL fetches are low-risk, but piping network output into a shell is governed separately by safety rules."
       ]
     },
     {
-      "intent": "show_ports",
-      "description": "Show network connections, listening ports, and socket usage.",
+      "intent": "list_listening_ports",
+      "description": "List listening ports and related socket information.",
       "category": "networking",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["netstat -ano"],
-        "powershell": ["Get-NetTCPConnection"],
-        "macos": ["netstat -an", "lsof -i"],
-        "ubuntu": ["ss -tunlp", "netstat -an", "lsof -i"]
+        "windows_cmd": [
+          "netstat -ano"
+        ],
+        "powershell": [
+          "Get-NetTCPConnection -State Listen",
+          "Get-NetTCPConnection"
+        ],
+        "macos": [
+          "lsof -i -P -n | grep LISTEN",
+          "netstat -an"
+        ],
+        "ubuntu": [
+          "ss -tulnp",
+          "netstat -tulnp"
+        ]
       },
       "notes": [
-        "The first target command is chosen to preserve a connection-table style output when possible."
+        "The first target command is chosen to preserve a listening-port view when the source shell has a richer native primitive."
+      ]
+    },
+    {
+      "intent": "process_by_port",
+      "description": "Find the process using a specific local port.",
+      "category": "networking",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "netstat -ano | findstr <port_token>"
+        ],
+        "powershell": [
+          "Get-NetTCPConnection -LocalPort <port>"
+        ],
+        "macos": [
+          "lsof -i <port_token>"
+        ],
+        "ubuntu": [
+          "lsof -i <port_token>"
+        ]
+      },
+      "notes": [
+        "Use a port token such as :3000 when the native command expects a colon-prefixed port selector."
       ]
     },
     {
@@ -431,10 +1112,18 @@
       "category": "networking",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["route print"],
-        "powershell": ["Get-NetRoute"],
-        "macos": ["netstat -rn"],
-        "ubuntu": ["ip route"]
+        "windows_cmd": [
+          "route print"
+        ],
+        "powershell": [
+          "Get-NetRoute"
+        ],
+        "macos": [
+          "netstat -rn"
+        ],
+        "ubuntu": [
+          "ip route"
+        ]
       },
       "notes": [
         "Route inspection is read-only but platform output formats differ."
@@ -446,10 +1135,19 @@
       "category": "shell",
       "risk_level": "medium",
       "commands": {
-        "windows_cmd": ["notepad <file>"],
-        "powershell": ["notepad <file>"],
-        "macos": ["open -e <file>"],
-        "ubuntu": ["nano <file>", "xdg-open <file>"]
+        "windows_cmd": [
+          "notepad <file>"
+        ],
+        "powershell": [
+          "notepad <file>"
+        ],
+        "macos": [
+          "open -e <file>"
+        ],
+        "ubuntu": [
+          "nano <file>",
+          "xdg-open <file>"
+        ]
       },
       "notes": [
         "Editor launch commands open an interactive editor or GUI and therefore require confirmation in Translate Mode."
@@ -461,10 +1159,18 @@
       "category": "system",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["systeminfo"],
-        "powershell": ["Get-ComputerInfo"],
-        "macos": ["sw_vers && uname -a"],
-        "ubuntu": ["uname -a && lsb_release -a"]
+        "windows_cmd": [
+          "systeminfo"
+        ],
+        "powershell": [
+          "Get-ComputerInfo"
+        ],
+        "macos": [
+          "sw_vers && uname -a"
+        ],
+        "ubuntu": [
+          "uname -a && lsb_release -a"
+        ]
       },
       "notes": [
         "The information density differs by platform, so CLI4ALL chooses the closest native summary command."
@@ -476,10 +1182,18 @@
       "category": "system",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["wmic logicaldisk get size,freespace,caption"],
-        "powershell": ["Get-PSDrive -PSProvider FileSystem"],
-        "macos": ["df -h"],
-        "ubuntu": ["df -h"]
+        "windows_cmd": [
+          "wmic logicaldisk get size,freespace,caption"
+        ],
+        "powershell": [
+          "Get-PSDrive -PSProvider FileSystem"
+        ],
+        "macos": [
+          "df -h"
+        ],
+        "ubuntu": [
+          "df -h"
+        ]
       },
       "notes": [
         "PowerShell reports filesystem drives rather than the POSIX df table."
@@ -491,10 +1205,18 @@
       "category": "system",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["date /t && time /t"],
-        "powershell": ["Get-Date"],
-        "macos": ["date"],
-        "ubuntu": ["date"]
+        "windows_cmd": [
+          "date /t && time /t"
+        ],
+        "powershell": [
+          "Get-Date"
+        ],
+        "macos": [
+          "date"
+        ],
+        "ubuntu": [
+          "date"
+        ]
       },
       "notes": [
         "Windows CMD often splits date and time into two commands, while Unix platforms use a single date invocation."
@@ -506,13 +1228,236 @@
       "category": "system",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["set"],
-        "powershell": ["Get-ChildItem Env:"],
-        "macos": ["env"],
-        "ubuntu": ["env"]
+        "windows_cmd": [
+          "set"
+        ],
+        "powershell": [
+          "Get-ChildItem Env:"
+        ],
+        "macos": [
+          "env"
+        ],
+        "ubuntu": [
+          "env"
+        ]
       },
       "notes": [
         "This is read-only inspection of the current environment."
+      ]
+    },
+    {
+      "intent": "show_path",
+      "description": "Show the PATH environment variable.",
+      "category": "shell",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "echo %PATH%"
+        ],
+        "powershell": [
+          "$env:PATH"
+        ],
+        "macos": [
+          "echo $PATH"
+        ],
+        "ubuntu": [
+          "echo $PATH"
+        ]
+      },
+      "notes": [
+        "This reviewed mapping is intentionally limited to PATH and does not attempt arbitrary environment-variable translation."
+      ]
+    },
+    {
+      "intent": "git_status",
+      "description": "Show the current Git working tree status.",
+      "category": "development",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "git status"
+        ],
+        "powershell": [
+          "git status"
+        ],
+        "macos": [
+          "git status"
+        ],
+        "ubuntu": [
+          "git status"
+        ]
+      },
+      "notes": [
+        "Git status is read-only and safe for automatic Translate Mode execution."
+      ]
+    },
+    {
+      "intent": "git_log_compact",
+      "description": "Show a compact decorated Git commit graph.",
+      "category": "development",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "git log --oneline --graph --decorate --all"
+        ],
+        "powershell": [
+          "git log --oneline --graph --decorate --all"
+        ],
+        "macos": [
+          "git log --oneline --graph --decorate --all"
+        ],
+        "ubuntu": [
+          "git log --oneline --graph --decorate --all"
+        ]
+      },
+      "notes": [
+        "The reviewed compact log form stays identical across platforms."
+      ]
+    },
+    {
+      "intent": "git_branch_list",
+      "description": "List Git branches.",
+      "category": "development",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "git branch"
+        ],
+        "powershell": [
+          "git branch"
+        ],
+        "macos": [
+          "git branch"
+        ],
+        "ubuntu": [
+          "git branch"
+        ]
+      },
+      "notes": [
+        "Branch listing is read-only."
+      ]
+    },
+    {
+      "intent": "git_diff",
+      "description": "Show Git diff output.",
+      "category": "development",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "git diff"
+        ],
+        "powershell": [
+          "git diff"
+        ],
+        "macos": [
+          "git diff"
+        ],
+        "ubuntu": [
+          "git diff"
+        ]
+      },
+      "notes": [
+        "CLI4ALL treats raw git diff as read-only inspection output."
+      ]
+    },
+    {
+      "intent": "npm_install",
+      "description": "Install Node.js dependencies for the current project.",
+      "category": "development",
+      "risk_level": "medium",
+      "commands": {
+        "windows_cmd": [
+          "npm install"
+        ],
+        "powershell": [
+          "npm install"
+        ],
+        "macos": [
+          "npm install"
+        ],
+        "ubuntu": [
+          "npm install"
+        ]
+      },
+      "notes": [
+        "This writes packages and lockfiles and therefore requires confirmation in Translate Mode."
+      ]
+    },
+    {
+      "intent": "npm_run",
+      "description": "Run an npm script from package.json.",
+      "category": "development",
+      "risk_level": "medium",
+      "commands": {
+        "windows_cmd": [
+          "npm run <script...>"
+        ],
+        "powershell": [
+          "npm run <script...>"
+        ],
+        "macos": [
+          "npm run <script...>"
+        ],
+        "ubuntu": [
+          "npm run <script...>"
+        ]
+      },
+      "notes": [
+        "Project scripts can run arbitrary commands, so Translate Mode asks for confirmation."
+      ]
+    },
+    {
+      "intent": "python_version",
+      "description": "Show the installed Python version.",
+      "category": "development",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "python --version",
+          "py --version"
+        ],
+        "powershell": [
+          "python --version",
+          "py --version"
+        ],
+        "macos": [
+          "python3 --version",
+          "python --version"
+        ],
+        "ubuntu": [
+          "python3 --version",
+          "python --version"
+        ]
+      },
+      "notes": [
+        "CLI4ALL prefers python3 on Unix-like targets but still recognizes python when that is what the user remembers."
+      ]
+    },
+    {
+      "intent": "rust_version",
+      "description": "Show the installed Rust toolchain version.",
+      "category": "development",
+      "risk_level": "low",
+      "commands": {
+        "windows_cmd": [
+          "rustc --version",
+          "cargo --version"
+        ],
+        "powershell": [
+          "rustc --version",
+          "cargo --version"
+        ],
+        "macos": [
+          "rustc --version",
+          "cargo --version"
+        ],
+        "ubuntu": [
+          "rustc --version",
+          "cargo --version"
+        ]
+      },
+      "notes": [
+        "CLI4ALL keeps the common Rust version checks as exact reviewed mappings."
       ]
     },
     {
@@ -521,10 +1466,18 @@
       "category": "packages",
       "risk_level": "low",
       "commands": {
-        "windows_cmd": ["winget search <package>"],
-        "powershell": ["winget search <package>"],
-        "macos": ["brew search <package>"],
-        "ubuntu": ["apt search <package>"]
+        "windows_cmd": [
+          "winget search <package>"
+        ],
+        "powershell": [
+          "winget search <package>"
+        ],
+        "macos": [
+          "brew search <package>"
+        ],
+        "ubuntu": [
+          "apt search <package>"
+        ]
       },
       "notes": [
         "Package search is a read-only operation and is safe for automatic execution."
@@ -536,10 +1489,18 @@
       "category": "packages",
       "risk_level": "medium",
       "commands": {
-        "windows_cmd": ["winget install <package>"],
-        "powershell": ["winget install <package>"],
-        "macos": ["brew install <package>"],
-        "ubuntu": ["sudo apt install <package>"]
+        "windows_cmd": [
+          "winget install <package>"
+        ],
+        "powershell": [
+          "winget install <package>"
+        ],
+        "macos": [
+          "brew install <package>"
+        ],
+        "ubuntu": [
+          "sudo apt install <package>"
+        ]
       },
       "notes": [
         "Package installation changes system state and requires confirmation in Translate Mode."
@@ -551,10 +1512,20 @@
       "category": "packages",
       "risk_level": "medium",
       "commands": {
-        "windows_cmd": ["winget upgrade", "winget upgrade --all"],
-        "powershell": ["winget upgrade", "winget upgrade --all"],
-        "macos": ["brew update"],
-        "ubuntu": ["sudo apt update"]
+        "windows_cmd": [
+          "winget upgrade",
+          "winget upgrade --all"
+        ],
+        "powershell": [
+          "winget upgrade",
+          "winget upgrade --all"
+        ],
+        "macos": [
+          "brew update"
+        ],
+        "ubuntu": [
+          "sudo apt update"
+        ]
       },
       "notes": [
         "Package manager refresh and upgrade commands can prompt for privileges or change package state."

@@ -131,6 +131,23 @@ cargo run -- build-index --input data/commands.source.json --index data/commands
 Current expansion priority is macOS <-> Windows command coverage, with Ubuntu/Linux mappings
 continuing to grow alongside them.
 
+Catalog expansion strategy:
+
+- reviewed intent records are promoted deliberately from raw inventories and candidates
+- raw inventories are never dumped directly into the runtime store
+- every mapping must preserve arguments safely enough to survive cross-platform translation
+- safety stays conservative: read-only commands stay low risk, filesystem writes and package/script execution require confirmation, destructive patterns stay blocked
+
+High-frequency reviewed groups now include:
+
+- file and directory search: `search_text_recursive`, `find_by_name`, `count_lines_words_chars`
+- file inspection: `head_file`, `tail_file`, `follow_file`, `file_hash`
+- network diagnostics: `trace_route`, `dns_lookup`, `http_head`, `download_to_file`, `check_port`
+- processes and ports: `find_process_by_name`, `list_listening_ports`, `process_by_port`
+- archives: `create_zip`, `extract_zip`, `create_tar_gz`, `extract_tar_gz`
+- developer environment: `locate_executable`, `show_path`, `git_status`, `git_log_compact`, `git_branch_list`, `git_diff`, `npm_install`, `npm_run`, `python_version`, `rust_version`
+- permission/admin-sensitive commands: `change_permission`, `change_owner`
+
 Examples:
 
 | Source command | Target OS | Native translation |
@@ -141,6 +158,10 @@ Examples:
 | `ls` | Windows | `Get-ChildItem` |
 | `clear` | Windows | `Clear-Host` |
 | `open .` | Windows | `Invoke-Item .` |
+| `head -n 20 app.log` | Windows | `Get-Content app.log -TotalCount 20` |
+| `tracert example.com` | macOS | `traceroute example.com` |
+| `curl -I https://example.com` | Windows | `Invoke-WebRequest -Method Head https://example.com` |
+| `zip -r app.zip app` | Windows | `Compress-Archive -Path app -DestinationPath app.zip` |
 
 ## Command Inventory Pipeline
 
